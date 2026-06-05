@@ -1,4 +1,5 @@
 from voice.listen import listen
+from voice.tts import prepare_for_speech
 from ai.chat import ask_llm
 from memory.store import remember, recall
 
@@ -21,4 +22,9 @@ while True:
     answer = ask_llm(text)
 
     print("\nFRIDAY:", answer)
-    os.system(f'say "{answer}"')
+    
+    # Prepare text for clear speech (converts emojis to descriptions)
+    speech_text = prepare_for_speech(answer)
+    
+    # Speak with better rate and pitch for clarity
+    os.system(f'say -r 180 "{speech_text}"')

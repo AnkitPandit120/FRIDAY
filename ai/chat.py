@@ -21,7 +21,7 @@ When the user asks about something they've told you before, use the memories to 
 Keep responses concise and natural."""
 
     response = chat(
-        model="qwen3:8b",
+        model="qwen3-coder:480b-cloud", #qwen3-coder:480b-cloud  and qwen3:8b 
         messages=[
             {
                 "role": "system",
