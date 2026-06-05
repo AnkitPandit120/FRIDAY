@@ -1,0 +1,75 @@
+from ollama import chat
+from memory.store import get_memory_context, remember, recall
+
+def ask_llm(prompt):
+    # Get memory context
+    memory_context = get_memory_context()
+    
+    # System message with memory
+    system_message = f"""You are FRIDAY, a personal AI assistant for macOS.
+You have access to the user's personal information and memories.
+
+Current Memories:
+{memory_context}
+
+When the user tells you something about themselves (like their name, age, occupation, preferences), 
+you should acknowledge it and suggest remembering it. 
+For example: "I'll remember that you're interested in Python programming."
+
+When the user asks about something they've told you before, use the memories to answer accurately.
+
+Keep responses concise and natural."""
+
+    response = chat(
+        model="qwen3:8b",
+        messages=[
+            {
+                "role": "system",
+                "content": system_message
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    )
+
+    answer = response["message"]["content"]
+    
+    # Check if the response mentions remembering something
+    if "remember" in answer.lower() or "i'll remember" in answer.lower():
+        # Try to extract and store the memory
+        extract_and_store_memory(prompt, answer)
+    
+    return answer
+
+def extract_and_store_memory(prompt, response):
+    """Extract and store memories from the conversation"""
+    # Common memory patterns
+    memory_patterns = [
+        ("my name is", "name"),
+        ("i'm", "identity"),
+        ("my favorite", "preference"),
+        ("i like", "preference"),
+        ("i work as", "occupation"),
+        ("i'm a", "occupation"),
+        ("my email", "email"),
+        ("my phone", "phone"),
+    ]
+    
+    prompt_lower = prompt.lower()
+    
+    for pattern, memory_type in memory_patterns:
+        if pattern in prompt_lower:
+            # Extract the value after the pattern
+            start_idx = prompt_lower.find(pattern) + len(pattern)
+            value = prompt[start_idx:].strip()
+            
+            # Clean up the value
+            if value.endswith("."):
+                value = value[:-1]
+            
+            # Store the memory
+            if value:
+                remember(f"{memory_type}", value)
+            break
