@@ -1,13 +1,29 @@
 from ollama import chat
 from memory.store import get_memory_context, remember, recall
+from app_control.control import handle_app_command
 
 def ask_llm(prompt):
+    # First, check if this is an app control command
+    app_result = handle_app_command(prompt)
+    if app_result:
+        return app_result
+    
     # Get memory context
     memory_context = get_memory_context()
     
     # System message with memory
     system_message = f"""You are FRIDAY, a personal AI assistant for macOS.
 You have access to the user's personal information and memories.
+You can also control applications and system settings.
+
+APP CONTROL CAPABILITIES:
+- Open apps: "open chrome", "open spotify", etc.
+- Close apps: "close chrome", "close spotify", etc.
+- List running apps: "what apps are running"
+- Volume control: "set volume to 50"
+- Brightness: "set brightness to 75"
+- Lock screen: "lock screen"
+- Sleep: "sleep mac"
 
 Current Memories:
 {memory_context}
