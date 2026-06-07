@@ -24,10 +24,14 @@ def _get_api_key() -> str:
         return json.load(f)["gemini_api_key"]
 
 
-def _get_model(model_name: str):
-    import google.generativeai as genai
-    genai.configure(api_key=_get_api_key())
-    return genai.GenerativeModel(model_name)
+def _generate_content(model_name: str, prompt: str) -> str:
+    from google import genai
+    client = genai.Client(api_key=_get_api_key())
+    response = client.models.generate_content(
+        model=model_name,
+        contents=prompt
+    )
+    return response.text
 
 
 def _strip_fences(text: str) -> str:
@@ -97,7 +101,6 @@ class RateLimitError(Exception):
 
 
 def _plan_project(description: str, language: str) -> dict:
-    model = _get_model(MODEL_PLANNER)
 
     prompt = f"""You are a senior software architect. Create a minimal, complete file plan for this project.
 
@@ -135,8 +138,8 @@ Critical rules:
 JSON:"""
 
     try:
-        response = model.generate_content(prompt)
-        raw = _strip_fences(response.text)
+        response_text = _generate_content(MODEL_PLANNER, prompt)
+        raw = _strip_fences(response_text)
         return json.loads(raw)
     except json.JSONDecodeError as e:
         raise ValueError(f"Planner returned invalid JSON: {e}\nRaw: {response.text[:300]}")
@@ -153,7 +156,6 @@ def _write_file(
     project_dir: Path,
     already_written: dict[str, str],
 ) -> str:
-    model = _get_model(MODEL_WRITER)
 
     file_path = file_info["path"]
     file_desc = file_info.get("description", "")
@@ -214,8 +216,8 @@ General rules:
 Code for {file_path}:"""
 
     try:
-        response = model.generate_content(prompt)
-        code = _strip_fences(response.text)
+        response_text = _generate_content(MODEL_WRITER, prompt)
+        code = _strip_fences(response_text)
 
         full_path = project_dir / file_path
         full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -350,8 +352,6 @@ def _fix_files(
     entry_point: str,
 ) -> dict[str, str]:
 
-    model = _get_model(MODEL_PLANNER)
-
     error_file, error_line = _parse_traceback(error_output, list(file_codes.keys()))
     error_type = _classify_error(error_output)
 
@@ -412,8 +412,8 @@ Rules:
 Fixed code for {fix_path}:"""
 
         try:
-            response = model.generate_content(prompt)
-            fixed = _strip_fences(response.text)
+            response_text = _generate_content(MODEL_PLANNER, prompt)
+            fixed = _strip_fences(response_text)
 
             full_path = project_dir / fix_path
             full_path.parent.mkdir(parents=True, exist_ok=True)
