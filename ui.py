@@ -538,7 +538,7 @@ class HudCanvas(QWidget):
             p.setPen(QPen(qcol(C.PRI, min(255, int(self._halo * 2))), 1))
             p.setFont(QFont("Courier New", 13, QFont.Weight.Bold))
             p.drawText(QRectF(cx - 80, cy - 14, 160, 28),
-                       Qt.AlignmentFlag.AlignCenter, "J.A.R.V.I.S")
+                       Qt.AlignmentFlag.AlignCenter, "F.R.I.D.A.Y")
 
         # particles
         for pt in self._particles:
@@ -692,7 +692,7 @@ class LogWidget(QTextEdit):
         self._pos    = 0
         tl = self._text.lower()
         if   tl.startswith("you:"):    self._tag = "you"
-        elif tl.startswith("jarvis:"): self._tag = "ai"
+        elif tl.startswith("friday:"): self._tag = "ai"
         elif tl.startswith("file:"):   self._tag = "file"
         elif "err" in tl:              self._tag = "err"
         else:                          self._tag = "sys"
@@ -818,7 +818,7 @@ class FileDropZone(QWidget):
 
     def _browse(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select a file for JARVIS", str(Path.home()),
+            self, "Select a file for FRIDAY", str(Path.home()),
             "All Files (*.*);;"
             "Images (*.jpg *.jpeg *.png *.gif *.webp *.bmp *.svg);;"
             "Documents (*.pdf *.docx *.txt *.md *.pptx);;"
@@ -940,6 +940,136 @@ class _DropCanvas(QWidget):
             z.mousePressEvent(e)
 
 
+class ThemeCard(QFrame):
+    clicked = pyqtSignal()
+    def __init__(self, theme_key: str, theme_info: dict, active: bool, parent=None):
+        super().__init__(parent)
+        self.theme_key = theme_key
+        self.setObjectName("ThemeCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedHeight(56)
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 0, 12, 0)
+        layout.setSpacing(10)
+        
+        # Name
+        lbl = QLabel(theme_info["name"])
+        lbl.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        lbl.setStyleSheet(f"color: {C.TEXT}; background: transparent; border: none;")
+        layout.addWidget(lbl)
+        layout.addStretch()
+        
+        # Color swatches
+        swatch_layout = QHBoxLayout()
+        swatch_layout.setSpacing(4)
+        for col_name in ["BG", "PANEL", "PRI", "ACC"]:
+            dot = QFrame()
+            dot.setFixedSize(14, 14)
+            dot.setStyleSheet(f"background: {theme_info[col_name]}; border-radius: 7px; border: 1px solid {theme_info['BORDER']};")
+            swatch_layout.addWidget(dot)
+        layout.addLayout(swatch_layout)
+        
+        self.update_style(active)
+
+    def update_style(self, active: bool):
+        if active:
+            self.setStyleSheet(f"""
+                QFrame#ThemeCard {{
+                    background: {C.PANEL2};
+                    border: 2px solid {C.PRI};
+                    border-radius: 6px;
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QFrame#ThemeCard {{
+                    background: {C.PANEL};
+                    border: 1px solid {C.BORDER};
+                    border-radius: 6px;
+                }}
+                QFrame#ThemeCard:hover {{
+                    background: {C.PANEL2};
+                    border: 1px solid {C.PRI_DIM};
+                }}
+            """)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+        super().mousePressEvent(event)
+
+
+class VoiceCard(QFrame):
+    clicked = pyqtSignal()
+    def __init__(self, voice_key: str, label: str, active: bool, parent=None):
+        super().__init__(parent)
+        self.voice_key = voice_key
+        self.setObjectName("VoiceCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedHeight(56)
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 0, 12, 0)
+        layout.setSpacing(10)
+        
+        # Icon / dot indicator
+        self.indicator = QFrame()
+        self.indicator.setFixedSize(8, 8)
+        layout.addWidget(self.indicator)
+        
+        # Voice Info
+        info_lay = QVBoxLayout()
+        info_lay.setContentsMargins(0, 8, 0, 8)
+        info_lay.setSpacing(1)
+        
+        voice_lbl = QLabel(voice_key)
+        voice_lbl.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        voice_lbl.setStyleSheet(f"color: {C.TEXT}; background: transparent; border: none;")
+        info_lay.addWidget(voice_lbl)
+        
+        desc_lbl = QLabel(label)
+        desc_lbl.setFont(QFont("Courier New", 7))
+        desc_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
+        info_lay.addWidget(desc_lbl)
+        
+        layout.addLayout(info_lay)
+        layout.addStretch()
+        
+        mic_icon = QLabel("🎙")
+        mic_icon.setFont(QFont("Courier New", 12))
+        mic_icon.setStyleSheet(f"color: {C.PRI if active else C.TEXT_DIM}; background: transparent; border: none;")
+        layout.addWidget(mic_icon)
+        
+        self.update_style(active)
+
+    def update_style(self, active: bool):
+        self.indicator.setStyleSheet(f"border-radius: 4px; background: {C.PRI if active else C.BORDER_B};")
+        if active:
+            self.setStyleSheet(f"""
+                QFrame#VoiceCard {{
+                    background: {C.PANEL2};
+                    border: 2px solid {C.PRI};
+                    border-radius: 6px;
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QFrame#VoiceCard {{
+                    background: {C.PANEL};
+                    border: 1px solid {C.BORDER};
+                    border-radius: 6px;
+                }}
+                QFrame#VoiceCard:hover {{
+                    background: {C.PANEL2};
+                    border: 1px solid {C.PRI_DIM};
+                }}
+            """)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class SettingsPage(QWidget):
     back_clicked = pyqtSignal()
     theme_changed = pyqtSignal(str)
@@ -975,15 +1105,15 @@ class SettingsPage(QWidget):
         back_btn.clicked.connect(self.back_clicked.emit)
         header_lay.addWidget(back_btn)
         
-        title = QLabel("⚙  SETTINGS")
-        title.setFont(QFont("Courier New", 14, QFont.Weight.Bold))
+        title = QLabel("⚙  SETTINGS & PREFERENCES")
+        title.setFont(QFont("Courier New", 13, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {C.PRI}; background: transparent;")
         header_lay.addWidget(title)
         header_lay.addStretch()
         
         layout.addWidget(header)
         
-        # Content area with scroll
+        # Content Area Scroll
         scroll = QScrollArea()
         scroll.setStyleSheet(f"""
             QScrollArea {{
@@ -1005,98 +1135,195 @@ class SettingsPage(QWidget):
         
         content = QWidget()
         content.setStyleSheet(f"background: {C.BG};")
-        content_lay = QVBoxLayout(content)
-        content_lay.setContentsMargins(40, 30, 40, 30)
-        content_lay.setSpacing(20)
         
-        # Theme Section
-        theme_title = QLabel("THEME")
-        theme_title.setFont(QFont("Courier New", 11, QFont.Weight.Bold))
-        theme_title.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-        content_lay.addWidget(theme_title)
+        # Two-column layout in content
+        grid_lay = QHBoxLayout(content)
+        grid_lay.setContentsMargins(30, 24, 30, 24)
+        grid_lay.setSpacing(24)
         
-        theme_desc = QLabel("Choose your preferred color scheme")
+        # --- Left Column (Appearance & Voice) ---
+        left_col = QVBoxLayout()
+        left_col.setSpacing(20)
+        
+        # Theme Settings Card
+        theme_card = QFrame()
+        theme_card.setObjectName("ThemeSettingsCard")
+        theme_card.setStyleSheet(f"QFrame#ThemeSettingsCard {{ background: {C.PANEL}; border: 1px solid {C.BORDER}; border-radius: 8px; }}")
+        theme_lay = QVBoxLayout(theme_card)
+        theme_lay.setContentsMargins(16, 16, 16, 16)
+        theme_lay.setSpacing(10)
+        
+        theme_title = QLabel("🎨 APPEARANCE & THEME")
+        theme_title.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
+        theme_title.setStyleSheet(f"color: {C.PRI}; background: transparent; border: none;")
+        theme_lay.addWidget(theme_title)
+        
+        theme_desc = QLabel("Select a visual interface color palette:")
         theme_desc.setFont(QFont("Courier New", 8))
-        theme_desc.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-        content_lay.addWidget(theme_desc)
-        content_lay.addSpacing(10)
+        theme_desc.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
+        theme_lay.addWidget(theme_desc)
         
-        # Theme buttons container
-        self._theme_btns = {}
+        self._theme_cards = {}
         for theme_key, theme_info in THEMES.items():
-            btn_container = QWidget()
-            btn_lay = QHBoxLayout(btn_container)
-            btn_lay.setContentsMargins(0, 0, 0, 0)
-            
-            btn = QPushButton(theme_info["name"])
-            btn.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
-            btn.setFixedHeight(40)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda _, k=theme_key: self._select_theme(k))
-            btn_lay.addWidget(btn)
-            
-            content_lay.addWidget(btn_container)
-            self._theme_btns[theme_key] = btn
+            card = ThemeCard(theme_key, theme_info, theme_key == _current_theme)
+            card.clicked.connect(lambda k=theme_key: self._select_theme(k))
+            theme_lay.addWidget(card)
+            self._theme_cards[theme_key] = card
+        left_col.addWidget(theme_card)
         
-        self._update_theme_buttons()
+        # Voice Settings Card
+        voice_settings_card = QFrame()
+        voice_settings_card.setObjectName("VoiceSettingsCard")
+        voice_settings_card.setStyleSheet(f"QFrame#VoiceSettingsCard {{ background: {C.PANEL}; border: 1px solid {C.BORDER}; border-radius: 8px; }}")
+        voice_lay = QVBoxLayout(voice_settings_card)
+        voice_lay.setContentsMargins(16, 16, 16, 16)
+        voice_lay.setSpacing(10)
         
-        content_lay.addSpacing(20)
+        voice_title = QLabel("🗣️ VOICE CONFIGURATION")
+        voice_title.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
+        voice_title.setStyleSheet(f"color: {C.PRI}; background: transparent; border: none;")
+        voice_lay.addWidget(voice_title)
         
-        # Separator
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"color: {C.BORDER};")
-        sep.setFixedHeight(1)
-        content_lay.addWidget(sep)
-        
-        content_lay.addSpacing(20)
-        
-        # Voice Section
-        voice_title = QLabel("VOICE")
-        voice_title.setFont(QFont("Courier New", 11, QFont.Weight.Bold))
-        voice_title.setStyleSheet(f"color: {C.PRI}; background: transparent;")
-        content_lay.addWidget(voice_title)
-        
-        voice_desc = QLabel("Choose your AI assistant voice")
+        voice_desc = QLabel("Choose primary speech feedback voice:")
         voice_desc.setFont(QFont("Courier New", 8))
-        voice_desc.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
-        content_lay.addWidget(voice_desc)
-        content_lay.addSpacing(10)
+        voice_desc.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
+        voice_lay.addWidget(voice_desc)
         
-        # Voice buttons container
         VOICES = {
-            "Charon": "Male Voice",
-            "Phoebe": "Female Voice",
+            "Charon": "Male Voice (Standard)",
+            "Kore": "Female Voice (Multimodal)",
         }
         
-        self._voice_btns = {}
-        for voice_key, voice_name in VOICES.items():
-            btn_container = QWidget()
-            btn_lay = QHBoxLayout(btn_container)
-            btn_lay.setContentsMargins(0, 0, 0, 0)
+        self._voice_cards = {}
+        for voice_key, voice_label in VOICES.items():
+            card = VoiceCard(voice_key, voice_label, voice_key == _current_voice)
+            card.clicked.connect(lambda k=voice_key: self._select_voice(k))
+            voice_lay.addWidget(card)
+            self._voice_cards[voice_key] = card
+        left_col.addWidget(voice_settings_card)
+        
+        left_col.addStretch()
+        grid_lay.addLayout(left_col, stretch=1)
+        
+        # --- Right Column (API Keys & Diagnostics) ---
+        right_col = QVBoxLayout()
+        right_col.setSpacing(20)
+        
+        # API Keys Card
+        api_card = QFrame()
+        api_card.setObjectName("ConfigCard")
+        api_card.setStyleSheet(f"QFrame#ConfigCard {{ background: {C.PANEL}; border: 1px solid {C.BORDER}; border-radius: 8px; }}")
+        api_lay = QVBoxLayout(api_card)
+        api_lay.setContentsMargins(16, 16, 16, 16)
+        api_lay.setSpacing(10)
+        
+        api_title = QLabel("🔑 GEMINI API INTEGRATION")
+        api_title.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
+        api_title.setStyleSheet(f"color: {C.PRI}; background: transparent; border: none;")
+        api_lay.addWidget(api_title)
+        
+        api_desc = QLabel("Update key for the Live Multimodal Model:")
+        api_desc.setFont(QFont("Courier New", 8))
+        api_desc.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
+        api_lay.addWidget(api_desc)
+        
+        input_lay = QHBoxLayout()
+        input_lay.setSpacing(6)
+        
+        self.api_input = QLineEdit()
+        self.api_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_input.setFont(QFont("Courier New", 9))
+        self.api_input.setFixedHeight(34)
+        self.api_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: #000c12; color: {C.WHITE};
+                border: 1px solid {C.BORDER}; border-radius: 4px; padding: 4px 10px;
+            }}
+            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
+        """)
+        self._load_api_key_to_input()
+        input_lay.addWidget(self.api_input, stretch=1)
+        
+        self.toggle_btn = QPushButton("👁")
+        self.toggle_btn.setFixedSize(34, 34)
+        self.toggle_btn.setFont(QFont("Courier New", 11))
+        self.toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C.PANEL2}; color: {C.TEXT};
+                border: 1px solid {C.BORDER}; border-radius: 4px;
+            }}
+            QPushButton:hover {{ border: 1px solid {C.BORDER_B}; color: {C.PRI}; }}
+        """)
+        self.toggle_btn.clicked.connect(self._toggle_api_visibility)
+        input_lay.addWidget(self.toggle_btn)
+        
+        self.save_key_btn = QPushButton("APPLY")
+        self.save_key_btn.setFixedSize(70, 34)
+        self.save_key_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self.save_key_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_key_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.PRI};
+                border: 1px solid {C.PRI_DIM}; border-radius: 4px;
+            }}
+            QPushButton:hover {{ background: {C.PRI_GHO}; border: 1px solid {C.PRI}; }}
+        """)
+        self.save_key_btn.clicked.connect(self._save_api_key_from_input)
+        input_lay.addWidget(self.save_key_btn)
+        
+        api_lay.addLayout(input_lay)
+        right_col.addWidget(api_card)
+        
+        # Diagnostics Specs Card
+        diag_card = QFrame()
+        diag_card.setObjectName("DiagCard")
+        diag_card.setStyleSheet(f"QFrame#DiagCard {{ background: {C.PANEL}; border: 1px solid {C.BORDER}; border-radius: 8px; }}")
+        diag_lay = QVBoxLayout(diag_card)
+        diag_lay.setContentsMargins(16, 16, 16, 16)
+        diag_lay.setSpacing(10)
+        
+        diag_title = QLabel("📊 SYSTEM STATUS & SPECS")
+        diag_title.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
+        diag_title.setStyleSheet(f"color: {C.PRI}; background: transparent; border: none;")
+        diag_lay.addWidget(diag_title)
+        
+        specs_container = QVBoxLayout()
+        specs_container.setSpacing(6)
+        
+        def _add_spec(key, val, val_color=C.TEXT):
+            row = QHBoxLayout()
+            lbl_key = QLabel(key)
+            lbl_key.setFont(QFont("Courier New", 8))
+            lbl_key.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
+            lbl_val = QLabel(val)
+            lbl_val.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+            lbl_val.setStyleSheet(f"color: {val_color}; background: transparent; border: none;")
+            row.addWidget(lbl_key)
+            row.addStretch()
+            row.addWidget(lbl_val)
+            specs_container.addLayout(row)
             
-            btn = QPushButton(f"🎙 {voice_name}")
-            btn.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
-            btn.setFixedHeight(40)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda _, k=voice_key: self._select_voice(k))
-            btn_lay.addWidget(btn)
-            
-            content_lay.addWidget(btn_container)
-            self._voice_btns[voice_key] = btn
+        _add_spec("CODENAME", "F.R.I.D.A.Y.", C.PRI)
+        _add_spec("VERSION", "MARK XXXIX (v1.0.0)", C.ACC2)
         
-        self._update_voice_buttons()
+        os_info = f"macOS ({platform.mac_ver()[0]})" if _OS == "Darwin" else f"{_OS}"
+        _add_spec("PLATFORM", os_info, C.TEXT)
+        _add_spec("THEME ACTIVE", _current_theme.upper(), C.PRI_DIM)
         
-        content_lay.addSpacing(20)
+        try:
+            import sounddevice as sd
+            devs = sd.query_devices(kind='input')
+            mic_name = devs.get('name', 'Default Microphone')[:24]
+        except Exception:
+            mic_name = "Audio Input Device"
+        _add_spec("MIC STREAM", mic_name, C.GREEN)
         
-        # Separator
-        sep2 = QFrame()
-        sep2.setFrameShape(QFrame.Shape.HLine)
-        sep2.setStyleSheet(f"color: {C.BORDER};")
-        sep2.setFixedHeight(1)
-        content_lay.addWidget(sep2)
+        diag_lay.addLayout(specs_container)
+        right_col.addWidget(diag_card)
         
-        content_lay.addStretch()
+        right_col.addStretch()
+        grid_lay.addLayout(right_col, stretch=1)
         
         scroll.setWidget(content)
         layout.addWidget(scroll, stretch=1)
@@ -1108,68 +1335,76 @@ class SettingsPage(QWidget):
         footer_lay = QHBoxLayout(footer)
         footer_lay.setContentsMargins(14, 0, 14, 0)
         
-        footer_lbl = QLabel("Settings apply immediately")
+        footer_lbl = QLabel("Preferences apply instantly to hardware core")
         footer_lbl.setFont(QFont("Courier New", 7))
         footer_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
         footer_lay.addWidget(footer_lbl)
         footer_lay.addStretch()
         
         layout.addWidget(footer)
-    
-    def _update_theme_buttons(self):
-        for theme_key, btn in self._theme_btns.items():
-            if theme_key == _current_theme:
-                theme_info = THEMES[theme_key]
-                fg = theme_info["PRI"]
-                bg = theme_info["BG"]
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background: {fg}; color: {bg};
-                        border: 2px solid {fg}; border-radius: 4px; font-weight: bold;
-                    }}
-                    QPushButton:hover {{
-                        opacity: 0.9;
-                    }}
-                """)
+        
+    def _load_api_key_to_input(self):
+        if API_FILE.exists():
+            try:
+                data = json.loads(API_FILE.read_text(encoding="utf-8"))
+                self.api_input.setText(data.get("gemini_api_key", ""))
+            except Exception:
+                pass
+
+    def _save_api_key_from_input(self):
+        key = self.api_input.text().strip()
+        if not key:
+            self.api_input.setStyleSheet(f"""
+                QLineEdit {{
+                    background: #000c12; color: {C.WHITE};
+                    border: 1px solid {C.RED}; border-radius: 4px; padding: 4px 10px;
+                }}
+            """)
+            return
+            
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        try:
+            if API_FILE.exists():
+                data = json.loads(API_FILE.read_text(encoding="utf-8"))
             else:
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background: {C.PANEL}; color: {C.TEXT};
-                        border: 1px solid {C.BORDER}; border-radius: 4px;
-                    }}
-                    QPushButton:hover {{
-                        background: {C.PANEL2}; border: 1px solid {C.BORDER_B};
-                    }}
-                """)
-    
+                data = {}
+            data["gemini_api_key"] = key
+            if "os_system" not in data:
+                data["os_system"] = "mac" if _OS == "Darwin" else _OS.lower()
+            API_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+            
+            self.api_input.setStyleSheet(f"""
+                QLineEdit {{
+                    background: #000c12; color: {C.WHITE};
+                    border: 1px solid {C.BORDER}; border-radius: 4px; padding: 4px 10px;
+                }}
+            """)
+            self.save_key_btn.setText("APPLIED ✓")
+            QTimer.singleShot(1500, lambda: self.save_key_btn.setText("APPLY"))
+        except Exception as e:
+            print(f"Error saving API key: {e}")
+
+    def _toggle_api_visibility(self):
+        if self.api_input.echoMode() == QLineEdit.EchoMode.Password:
+            self.api_input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.toggle_btn.setText("🔒")
+        else:
+            self.api_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.toggle_btn.setText("👁")
+
+    def _update_theme_buttons(self):
+        for theme_key, card in self._theme_cards.items():
+            card.update_style(theme_key == _current_theme)
+            
     def _select_theme(self, theme_key: str):
         set_theme(theme_key)
         self.theme_changed.emit(theme_key)
         self._update_theme_buttons()
 
     def _update_voice_buttons(self):
-        for voice_key, btn in self._voice_btns.items():
-            if voice_key == _current_voice:
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background: {C.PRI}; color: {C.BG};
-                        border: 2px solid {C.PRI}; border-radius: 4px; font-weight: bold;
-                    }}
-                    QPushButton:hover {{
-                        opacity: 0.9;
-                    }}
-                """)
-            else:
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background: {C.PANEL}; color: {C.TEXT};
-                        border: 1px solid {C.BORDER}; border-radius: 4px;
-                    }}
-                    QPushButton:hover {{
-                        background: {C.PANEL2}; border: 1px solid {C.BORDER_B};
-                    }}
-                """)
-    
+        for voice_key, card in self._voice_cards.items():
+            card.update_style(voice_key == _current_voice)
+            
     def _select_voice(self, voice_key: str):
         set_voice(voice_key)
         self._update_voice_buttons()
@@ -1208,7 +1443,7 @@ class SetupOverlay(QWidget):
             return w
 
         layout.addWidget(_lbl("◈  INITIALISATION REQUIRED", 13, True))
-        layout.addWidget(_lbl("Configure J.A.R.V.I.S. before first boot.", 9, color=C.PRI_DIM))
+        layout.addWidget(_lbl("Configure F.R.I.D.A.Y. before first boot.", 9, color=C.PRI_DIM))
         layout.addSpacing(6)
 
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
@@ -1310,7 +1545,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, face_path: str):
         super().__init__()
-        self.setWindowTitle("J.A.R.V.I.S — MARK XXXIX")
+        self.setWindowTitle("F.R.I.D.A.Y — MARK XXXIX")
         self.setMinimumSize(_MIN_W, _MIN_H)
         self.resize(_DEFAULT_W, _DEFAULT_H)
 
@@ -1495,12 +1730,12 @@ class MainWindow(QMainWindow):
         lay.addStretch()
 
         mid = QVBoxLayout(); mid.setSpacing(1)
-        title = QLabel("J.A.R.V.I.S")
+        title = QLabel("F.R.I.D.A.Y")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setFont(QFont("Courier New", 17, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {C.PRI}; background: transparent;")
         mid.addWidget(title)
-        sub = QLabel("Just A Rather Very Intelligent System")
+        sub = QLabel("Female Replacement Intelligent Diary Assistant Youth")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setFont(QFont("Courier New", 7))
         sub.setStyleSheet(f"color: {C.PRI_DIM}; background: transparent;")
@@ -1733,7 +1968,7 @@ class MainWindow(QMainWindow):
         cat  = _file_category(p)
         icon, _ = _FILE_ICONS.get(cat, _FILE_ICONS["unknown"])
         size = _fmt_size(p.stat().st_size)
-        self._file_hint.setText(f"{icon}  {p.name}  ·  {size}  ·  Tell JARVIS what to do with it")
+        self._file_hint.setText(f"{icon}  {p.name}  ·  {size}  ·  Tell FRIDAY what to do with it")
         self._log.append_log(f"FILE: {p.name} ({size}) loaded")
         if self.on_text_command:
             msg = (
@@ -1818,7 +2053,7 @@ class MainWindow(QMainWindow):
             self._overlay.hide()
             self._overlay = None
         self._apply_state("LISTENING")
-        self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. JARVIS online.")
+        self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. FRIDAY online.")
 
 class _RootShim:
     def __init__(self, app: QApplication):
@@ -1829,7 +2064,7 @@ class _RootShim:
         pass
 
 
-class JarvisUI:
+class FridayUI:
     def __init__(self, face_path: str, size=None):
         load_theme()  # Load saved theme
         load_voice()  # Load saved voice

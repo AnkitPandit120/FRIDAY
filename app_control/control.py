@@ -23,30 +23,79 @@ def close_app(app_name):
         return f"✗ Error: {str(e)}"
 
 def get_running_apps():
-    """Get list of currently running applications"""
+    """Get list of currently running GUI applications"""
     try:
+        # Use lsof to find applications with open files
         result = subprocess.run(
-            ["ps", "aux"],
+            ["lsof", "-c", "", "-a"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        # Better approach: Use system_profiler or top command
+        result = subprocess.run(
+            ["ps", "-e", "-o", "comm="],
             capture_output=True,
             text=True,
             check=True
         )
         
-        # Extract app names from processes
+        # Filter out system processes and show only real applications
+        system_processes = {
+            'kernel_task', 'launchd', 'syslog', 'usernotificationd',
+            'SystemUIServer', 'Finder', 'Dock', 'loginwindow',
+            'WindowServer', 'opendirectoryd', 'trustd', 'secd',
+            'kextd', 'filecoordinationd', 'metadata', 'coreduetd',
+            'diskarbitrationd', 'fseventsd', 'bluetoothd', 'powerd',
+            'configd', 'SCHelper', 'systemstats', 'localization',
+            'bash', 'zsh', 'sh', 'python', 'python3', 'grep', 'sed',
+            'awk', 'ps', 'ls', 'cat', 'sleep', 'curl', 'wget',
+            'git', 'node', 'npm', 'java', 'ruby', 'perl',
+            'vim', 'nano', 'less', 'more', 'tee', 'sort',
+            'uniq', 'wc', 'head', 'tail', 'cut', 'tr'
+        }
+        
         apps = set()
         for line in result.stdout.split('\n'):
-            parts = line.split()
-            if len(parts) > 10:
-                process_name = parts[-1]
-                # Extract just the app name
-                app_name = os.path.basename(process_name)
-                if app_name and app_name not in ['bash', 'zsh', 'sh', 'python', '-']:
-                    apps.add(app_name)
+            line = line.strip()
+            if line and line not in system_processes and not line.startswith('-'):
+                # Only include if it looks like a real app
+                if len(line) > 2 and not line.startswith('_'):
+                    # Skip if it contains system indicators
+                    if not any(x in line for x in ['--', 'kernel', 'system', '.', ':']):
+                        app_name = os.path.basename(line)
+                        if app_name and len(app_name) > 2:
+                            apps.add(app_name)
         
-        app_list = sorted(list(apps))[:15]  # Return top 15
-        return f"Running apps: {', '.join(app_list)}"
+        # Get only user applications (not system services)
+        user_apps = []
+        for app in sorted(apps):
+            if app not in system_processes:
+                user_apps.append(app)
+        
+        if not user_apps:
+            return "No user applications are currently running"
+        
+        user_apps = user_apps[:20]  # Return top 20
+        return f"Running apps: {', '.join(user_apps)}"
+        
     except Exception as e:
-        return f"✗ Error getting apps: {str(e)}"
+        # Fallback: Try alternative method
+        try:
+            result = subprocess.run(
+                ["mdfind", "kMDItemKind == 'Application'", "-onlyin", "/Applications"],
+                capture_output=True,
+                text=True,
+                timeout=3
+            )
+            if result.stdout:
+                apps = [os.path.basename(app).replace('.app', '') for app in result.stdout.split('\n') if app]
+                return f"Available apps: {', '.join(apps[:10])}"
+        except:
+            pass
+        
+        return "Unable to list running apps at this time"
 
 def set_volume(level):
     """Set system volume (0-100)"""
