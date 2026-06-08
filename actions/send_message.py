@@ -253,7 +253,7 @@ def _click_first_search_result(app_name: str) -> bool:
     return True
 
 
-def _desktop_send(app_name: str, receiver: str, message: str) -> str:
+def _desktop_send(app_name: str, receiver: str, message: str, press_enter: bool = True) -> str:
     if not _open_app(app_name):
         return f"Could not open {app_name}."
 
@@ -279,6 +279,9 @@ def _desktop_send(app_name: str, receiver: str, message: str) -> str:
             names = ", ".join(f"'{m}'" for m in matches)
             return f"Multiple contacts found: {names}. Which one would you like to send the message to?"
 
+        if "matches" in res and not matches and not coords:
+            return f"Could not find contact '{receiver}' in {app_name}. Please verify the name."
+
         if coords and len(coords) == 2:
             # Vision AI found exact coordinates — click them
             pyautogui.click(coords[0], coords[1])
@@ -291,27 +294,38 @@ def _desktop_send(app_name: str, receiver: str, message: str) -> str:
                 pyautogui.press("enter")
                 time.sleep(0.8)
 
+    # Focus/click chat input to be safe, then clear existing text
+    os_name = _get_os()
+    select_all = ("command", "a") if os_name == "mac" else ("ctrl", "a")
+    pyautogui.hotkey(*select_all)
+    time.sleep(0.15)
+    pyautogui.press("delete")
+    time.sleep(0.15)
+
     _paste_text(message)
     time.sleep(0.2)
-    pyautogui.press("enter")
-    time.sleep(0.3)
-    return f"Message sent to {receiver} via {app_name}."
 
-def _send_whatsapp(receiver: str, message: str) -> str:
-    return _desktop_send("WhatsApp", receiver, message)
+    if press_enter:
+        pyautogui.press("enter")
+        time.sleep(0.3)
+        return f"Message sent to {receiver} via {app_name}."
+    else:
+        return f"TYPED: Message typed for {receiver} via {app_name}."
 
-def _send_telegram(receiver: str, message: str) -> str:
-    return _desktop_send("Telegram", receiver, message)
+def _send_whatsapp(receiver: str, message: str, press_enter: bool = True) -> str:
+    return _desktop_send("WhatsApp", receiver, message, press_enter)
 
-def _send_signal(receiver: str, message: str) -> str:
-    return _desktop_send("Signal", receiver, message)
+def _send_telegram(receiver: str, message: str, press_enter: bool = True) -> str:
+    return _desktop_send("Telegram", receiver, message, press_enter)
+
+def _send_signal(receiver: str, message: str, press_enter: bool = True) -> str:
+    return _desktop_send("Signal", receiver, message, press_enter)
+
+def _send_discord(receiver: str, message: str, press_enter: bool = True) -> str:
+    return _desktop_send("Discord", receiver, message, press_enter)
 
 
-def _send_discord(receiver: str, message: str) -> str:
-    return _desktop_send("Discord", receiver, message)
-
-
-def _send_instagram(receiver: str, message: str) -> str:
+def _send_instagram(receiver: str, message: str, press_enter: bool = True) -> str:
     _require_pyautogui()
 
     if not _open_browser_url("https://www.instagram.com/direct/new/"):
@@ -331,20 +345,30 @@ def _send_instagram(receiver: str, message: str) -> str:
     pyautogui.press("enter")
     time.sleep(2.0)
 
+    # Clear input field
+    os_name = _get_os()
+    select_all = ("command", "a") if os_name == "mac" else ("ctrl", "a")
+    pyautogui.hotkey(*select_all)
+    time.sleep(0.15)
+    pyautogui.press("delete")
+    time.sleep(0.15)
+
     _paste_text(message)
     time.sleep(0.2)
-    pyautogui.press("enter")
-    time.sleep(0.3)
 
-    return f"Message sent to {receiver} via Instagram."
+    if press_enter:
+        pyautogui.press("enter")
+        time.sleep(0.3)
+        return f"Message sent to {receiver} via Instagram."
+    else:
+        return f"TYPED: Message typed for {receiver} via Instagram."
 
 
-def _send_messenger(receiver: str, message: str) -> str:
+def _send_messenger(receiver: str, message: str, press_enter: bool = True) -> str:
     _require_pyautogui()
 
     if not _open_browser_url("https://www.messenger.com/"):
         return "Could not open Messenger in browser."
-
 
     _search_in_app(receiver)
     time.sleep(0.5)
@@ -353,12 +377,23 @@ def _send_messenger(receiver: str, message: str) -> str:
     pyautogui.press("enter")
     time.sleep(1.0)
 
+    # Clear input field
+    os_name = _get_os()
+    select_all = ("command", "a") if os_name == "mac" else ("ctrl", "a")
+    pyautogui.hotkey(*select_all)
+    time.sleep(0.15)
+    pyautogui.press("delete")
+    time.sleep(0.15)
+
     _paste_text(message)
     time.sleep(0.2)
-    pyautogui.press("enter")
-    time.sleep(0.3)
 
-    return f"Message sent to {receiver} via Messenger."
+    if press_enter:
+        pyautogui.press("enter")
+        time.sleep(0.3)
+        return f"Message sent to {receiver} via Messenger."
+    else:
+        return f"TYPED: Message typed for {receiver} via Messenger."
 
 _PLATFORM_MAP = [
     ({"whatsapp", "wp", "wapp"},              _send_whatsapp),
@@ -375,8 +410,9 @@ def _resolve_platform(platform_str: str):
     for keywords, handler in _PLATFORM_MAP:
         if any(k in key for k in keywords):
             return handler
-    return lambda r, m: _desktop_send(platform_str.strip().title(), r, m)
+    return lambda r, m, pe=True: _desktop_send(platform_str.strip().title(), r, m, pe)
 
+_LAST_TYPED_STATE = None
 
 def send_message(
     parameters: dict,
@@ -384,6 +420,7 @@ def send_message(
     player=None,
     session_memory=None,
 ) -> str:
+    global _LAST_TYPED_STATE
     params       = parameters or {}
     receiver     = params.get("receiver", "").strip()
     message_text = params.get("message_text", "").strip()
@@ -397,22 +434,45 @@ def send_message(
     if not _PYAUTOGUI:
         return "PyAutoGUI is not installed — cannot control the desktop."
 
-    # Ask for confirmation via Friday's voice if not already confirmed by user in previous turn
+    app_name = platform.strip().title()
+
     if not confirmed:
-        result = f"CONFIRMATION_REQUIRED: Ask the user: 'Do you want me to send the message \"{message_text}\" to {receiver} via {platform}?'"
-        print(f"[SendMessage] 🛑 {result}")
+        # Step 1: Open chat and type the message, but do not press enter/send
+        try:
+            handler = _resolve_platform(platform)
+            result = handler(receiver, message_text, press_enter=False)
+            if result.startswith("TYPED:"):
+                _LAST_TYPED_STATE = (platform, receiver, message_text)
+                confirmation_msg = f"CONFIRMATION_REQUIRED: Ask the user: 'I have typed the message. Do you want me to send it to {receiver} via {platform}?'"
+                print(f"[SendMessage] 🛑 {confirmation_msg}")
+                if player:
+                    player.write_log(f"[msg] {confirmation_msg}")
+                return confirmation_msg
+            else:
+                return result
+        except Exception as e:
+            return f"Could not type message: {e}"
+
+    # If confirmed is True:
+    # Check if we already typed it. If yes, we can just press enter!
+    if _LAST_TYPED_STATE == (platform, receiver, message_text):
+        _LAST_TYPED_STATE = None
+        # Make sure the app is focused
+        _open_app(app_name)
+        time.sleep(0.5)
+        pyautogui.press("enter")
+        time.sleep(0.3)
+        result = f"Message sent to {receiver} via {app_name}."
+        print(f"[SendMessage] ✅ {result}")
         if player:
             player.write_log(f"[msg] {result}")
         return result
 
-    preview = message_text[:50] + ("…" if len(message_text) > 50 else "")
-    print(f"[SendMessage] 📨 {platform} → {receiver}: {preview}")
-    if player:
-        player.write_log(f"[msg] {platform} → {receiver}")
-
+    # Fallback/Direct send:
+    _LAST_TYPED_STATE = None
     try:
         handler = _resolve_platform(platform)
-        result  = handler(receiver, message_text)
+        result  = handler(receiver, message_text, press_enter=True)
     except Exception as e:
         result = f"Could not send message: {e}"
 
