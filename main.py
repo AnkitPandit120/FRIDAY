@@ -53,6 +53,16 @@ def _get_api_key() -> str:
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 
+def _get_active_model() -> str:
+    try:
+        if API_CONFIG_PATH.exists():
+            with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            return cfg.get("active_model", "gemini").lower()
+    except Exception:
+        pass
+    return "gemini"
+
 
 def _load_system_prompt() -> str:
     try:
@@ -117,19 +127,20 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "send_message",
-        "description": "Sends a text message via WhatsApp, Telegram, or other messaging platform. ALWAYS ask the user for confirmation first before setting confirmed=True. If the user hasn't verbally or textually confirmed yet, call this tool with confirmed=False.",
+        "description": "Sends a text message or places a voice call via WhatsApp, Telegram, or other messaging platform. ALWAYS ask the user for confirmation first before setting confirmed=True. If the user hasn't verbally or textually confirmed yet, call this tool with confirmed=False.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "receiver":     {"type": "STRING", "description": "Recipient contact name"},
-                "message_text": {"type": "STRING", "description": "The message to send"},
+                "message_text": {"type": "STRING", "description": "The message to send (leave empty or omit if action_type is 'call')"},
                 "platform":     {"type": "STRING", "description": "Platform: WhatsApp, Telegram, etc."},
+                "action_type":  {"type": "STRING", "description": "Type of action: 'message' (default) or 'call'"},
                 "confirmed":    {
                     "type": "BOOLEAN", 
-                    "description": "Set to True ONLY if the user has explicitly confirmed via voice or text in the immediate previous turn that they want to send this specific message."
+                    "description": "Set to True ONLY if the user has explicitly confirmed via voice or text in the immediate previous turn that they want to send this specific message/make this call."
                 }
             },
-            "required": ["receiver", "message_text", "platform"]
+            "required": ["receiver", "platform"]
         }
     },
     {
@@ -526,12 +537,19 @@ class FridayLive:
         self.chat_history   = []
 
     def _on_text_command(self, text: str):
-        if not self._loop or not self.session:
-            return
         # Append typed user command to history (limit to last 30 messages)
         self.chat_history.append({"role": "user", "text": text})
         if len(self.chat_history) > 30:
             self.chat_history = self.chat_history[-30:]
+
+        active_model = _get_active_model()
+        if active_model == "ollama":
+            # Run Ollama handler in a background thread so we don't block the Qt UI thread
+            threading.Thread(target=self._run_ollama_chat, args=(text,), daemon=True).start()
+            return
+
+        if not self._loop or not self.session:
+            return
         asyncio.run_coroutine_threadsafe(
             self.session.send_client_content(
                 turns={"parts": [{"text": text}]},
@@ -539,6 +557,22 @@ class FridayLive:
             ),
             self._loop
         )
+
+    def _run_ollama_chat(self, text: str):
+        import subprocess
+        self.ui.set_state("THINKING")
+        try:
+            from ai.chat import ask_llm
+            response = ask_llm(text)
+            self.chat_history.append({"role": "friday", "text": response})
+            self.ui.write_log(f"Friday: {response}")
+            if not self.ui.muted:
+                from voice.tts import prepare_for_speech
+                cleaned = prepare_for_speech(response)
+                subprocess.run(["say", cleaned])
+        except Exception as e:
+            self.ui.write_log(f"SYS: Ollama Chat Error: {e}")
+        self.ui.set_state("LISTENING")
 
     def set_speaking(self, value: bool):
         with self._speaking_lock:
@@ -894,14 +928,38 @@ class FridayLive:
             stream.close()
 
     async def run(self):
-        client = genai.Client(
-            api_key=_get_api_key(),
-            http_options={"api_version": "v1beta"}
-        )
-
         while True:
+            active_model = _get_active_model()
+            if active_model == "ollama":
+                self.ui.set_state("LISTENING")
+                self._loop = asyncio.get_event_loop()
+                await asyncio.sleep(1.0)
+                continue
+
             try:
-                print("[FRIDAY] 🔌 Connecting...")
+                # Wait for API key if missing and we are in gemini mode
+                api_key = ""
+                while not api_key:
+                    active_model = _get_active_model()
+                    if active_model == "ollama":
+                        break
+                    try:
+                        api_key = _get_api_key()
+                    except Exception:
+                        pass
+                    if not api_key:
+                        print("[FRIDAY] ⚠️ Waiting for Gemini API key...")
+                        await asyncio.sleep(1.0)
+
+                if active_model == "ollama":
+                    continue
+
+                client = genai.Client(
+                    api_key=api_key,
+                    http_options={"api_version": "v1beta"}
+                )
+
+                print("[FRIDAY] 🔌 Connecting to Gemini Live...")
                 self.ui.set_state("THINKING")
                 config = self._build_config()
 
@@ -917,20 +975,30 @@ class FridayLive:
 
                     print("[FRIDAY] ✅ Connected.")
                     self.ui.set_state("LISTENING")
-                    self.ui.write_log("SYS: FRIDAY online.")
+                    self.ui.write_log("SYS: FRIDAY online (Google Gemini mode).")
 
-                    tg.create_task(self._send_realtime())
-                    tg.create_task(self._listen_audio())
-                    tg.create_task(self._receive_audio())
-                    tg.create_task(self._play_audio())
+                    send_task = tg.create_task(self._send_realtime())
+                    listen_task = tg.create_task(self._listen_audio())
+                    recv_task = tg.create_task(self._receive_audio())
+                    play_task = tg.create_task(self._play_audio())
+
+                    # Check periodically if model switched to ollama
+                    while _get_active_model() == "gemini":
+                        await asyncio.sleep(1.0)
+
+                    print("[FRIDAY] 🔌 Model switched to Ollama. Disconnecting Live session...")
+                    send_task.cancel()
+                    listen_task.cancel()
+                    recv_task.cancel()
+                    play_task.cancel()
+                    self.session = None
 
             except Exception as e:
-                print(f"[FRIDAY] ⚠️ {e}")
-                traceback.print_exc()
-            self.set_speaking(False)
-            self.ui.set_state("THINKING")
-            print("[FRIDAY] 🔄 Reconnecting in 3s...")
-            await asyncio.sleep(3)
+                print(f"[FRIDAY] ⚠️ Live Connection error: {e}")
+                self.session = None
+                self.ui.set_state("THINKING")
+                print("[FRIDAY] 🔄 Reconnecting in 3s...")
+                await asyncio.sleep(3)
 
 def main():
     ui = FridayUI("face.png")
