@@ -195,6 +195,8 @@ THEMES = {
 
 _current_theme = "blue"
 _current_voice = "Charon"
+_current_model = "gemini"
+_ollama_model = "qwen3-coder:480b-cloud"
 
 def set_theme(theme_name: str):
     global _current_theme
@@ -240,6 +242,44 @@ def get_current_voice():
 
 def get_current_theme():
     return THEMES.get(_current_theme, THEMES["blue"])
+
+def set_active_model(model_key: str):
+    global _current_model
+    _current_model = model_key
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    try:
+        if API_FILE.exists():
+            data = json.loads(API_FILE.read_text(encoding="utf-8"))
+        else:
+            data = {}
+        data["active_model"] = model_key
+        API_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    except Exception as e:
+        print(f"Error saving active model: {e}")
+
+def load_active_model():
+    global _current_model, _ollama_model
+    if API_FILE.exists():
+        try:
+            data = json.loads(API_FILE.read_text(encoding="utf-8"))
+            _current_model = data.get("active_model", "gemini")
+            _ollama_model = data.get("ollama_model", "qwen3-coder:480b-cloud")
+        except Exception:
+            pass
+
+def set_ollama_model(model_name: str):
+    global _ollama_model
+    _ollama_model = model_name
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    try:
+        if API_FILE.exists():
+            data = json.loads(API_FILE.read_text(encoding="utf-8"))
+        else:
+            data = {}
+        data["ollama_model"] = model_name
+        API_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    except Exception as e:
+        print(f"Error saving ollama model name: {e}")
 
 class _ColorMeta(type):
     def __getattr__(cls, name):
@@ -1166,6 +1206,77 @@ class VoiceCard(QFrame):
         super().mousePressEvent(event)
 
 
+class ModelCard(QFrame):
+    clicked = pyqtSignal()
+    def __init__(self, model_key: str, label: str, active: bool, parent=None):
+        super().__init__(parent)
+        self.model_key = model_key
+        self.setObjectName("ModelCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedHeight(56)
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 0, 12, 0)
+        layout.setSpacing(10)
+        
+        # Indicator
+        self.indicator = QFrame()
+        self.indicator.setFixedSize(8, 8)
+        layout.addWidget(self.indicator)
+        
+        # Info
+        info_lay = QVBoxLayout()
+        info_lay.setContentsMargins(0, 8, 0, 8)
+        info_lay.setSpacing(1)
+        
+        title_lbl = QLabel(model_key.upper())
+        title_lbl.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        title_lbl.setStyleSheet(f"color: {C.TEXT}; background: transparent; border: none;")
+        info_lay.addWidget(title_lbl)
+        
+        desc_lbl = QLabel(label)
+        desc_lbl.setFont(QFont("Courier New", 7))
+        desc_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
+        info_lay.addWidget(desc_lbl)
+        
+        layout.addLayout(info_lay)
+        layout.addStretch()
+        
+        brain_icon = QLabel("🧠")
+        brain_icon.setFont(QFont("Courier New", 12))
+        brain_icon.setStyleSheet(f"color: {C.PRI if active else C.TEXT_DIM}; background: transparent; border: none;")
+        layout.addWidget(brain_icon)
+        
+        self.update_style(active)
+
+    def update_style(self, active: bool):
+        self.indicator.setStyleSheet(f"border-radius: 4px; background: {C.PRI if active else C.BORDER_B};")
+        if active:
+            self.setStyleSheet(f"""
+                QFrame#ModelCard {{
+                    background: {C.PANEL2};
+                    border: 2px solid {C.PRI};
+                    border-radius: 6px;
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QFrame#ModelCard {{
+                    background: {C.PANEL};
+                    border: 1px solid {C.BORDER};
+                    border-radius: 6px;
+                }}
+                QFrame#ModelCard:hover {{
+                    background: {C.PANEL2};
+                    border: 1px solid {C.PRI_DIM};
+                }}
+            """)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class SettingsPage(QWidget):
     back_clicked = pyqtSignal()
     theme_changed = pyqtSignal(str)
@@ -1305,7 +1416,7 @@ class SettingsPage(QWidget):
         right_col = QVBoxLayout()
         right_col.setSpacing(20)
         
-        # API Keys Card
+        # API Keys & Model Config Card
         api_card = QFrame()
         api_card.setObjectName("ConfigCard")
         api_card.setStyleSheet(f"QFrame#ConfigCard {{ background: {C.PANEL}; border: 1px solid {C.BORDER}; border-radius: 8px; }}")
@@ -1313,12 +1424,30 @@ class SettingsPage(QWidget):
         api_lay.setContentsMargins(16, 16, 16, 16)
         api_lay.setSpacing(10)
         
-        api_title = QLabel("🔑 GEMINI API INTEGRATION")
+        api_title = QLabel("🧠 AI MODEL & API CONFIGURATION")
         api_title.setFont(QFont("Courier New", 10, QFont.Weight.Bold))
         api_title.setStyleSheet(f"color: {C.PRI}; background: transparent; border: none;")
         api_lay.addWidget(api_title)
+
+        model_sub = QLabel("Select Active AI Core:")
+        model_sub.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        model_sub.setStyleSheet(f"color: {C.TEXT}; background: transparent; border: none;")
+        api_lay.addWidget(model_sub)
+
+        self._model_cards = {}
+        MODELS = {
+            "gemini": "Google Gemini (Multimodal Live API)",
+            "ollama": "Ollama (Offline / Local)",
+        }
+        for model_key, model_label in MODELS.items():
+            card = ModelCard(model_key, model_label, model_key == _current_model)
+            card.clicked.connect(lambda k=model_key: self._select_model(k))
+            api_lay.addWidget(card)
+            self._model_cards[model_key] = card
+
+        api_lay.addSpacing(10)
         
-        api_desc = QLabel("Update key for the Live Multimodal Model:")
+        api_desc = QLabel("Google Gemini API Key:")
         api_desc.setFont(QFont("Courier New", 8))
         api_desc.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
         api_lay.addWidget(api_desc)
@@ -1369,6 +1498,45 @@ class SettingsPage(QWidget):
         input_lay.addWidget(self.save_key_btn)
         
         api_lay.addLayout(input_lay)
+
+        api_lay.addSpacing(6)
+
+        ollama_label = QLabel("Ollama Model Name:")
+        ollama_label.setFont(QFont("Courier New", 8))
+        ollama_label.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
+        api_lay.addWidget(ollama_label)
+
+        ollama_input_lay = QHBoxLayout()
+        ollama_input_lay.setSpacing(6)
+
+        self.ollama_input = QLineEdit()
+        self.ollama_input.setFont(QFont("Courier New", 9))
+        self.ollama_input.setFixedHeight(34)
+        self.ollama_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: #000c12; color: {C.WHITE};
+                border: 1px solid {C.BORDER}; border-radius: 4px; padding: 4px 10px;
+            }}
+            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
+        """)
+        self._load_ollama_model_to_input()
+        ollama_input_lay.addWidget(self.ollama_input, stretch=1)
+
+        self.save_ollama_btn = QPushButton("APPLY")
+        self.save_ollama_btn.setFixedSize(70, 34)
+        self.save_ollama_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self.save_ollama_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_ollama_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.PRI};
+                border: 1px solid {C.PRI_DIM}; border-radius: 4px;
+            }}
+            QPushButton:hover {{ background: {C.PRI_GHO}; border: 1px solid {C.PRI}; }}
+        """)
+        self.save_ollama_btn.clicked.connect(self._save_ollama_model_from_input)
+        ollama_input_lay.addWidget(self.save_ollama_btn)
+        api_lay.addLayout(ollama_input_lay)
+        
         right_col.addWidget(api_card)
         
         # Diagnostics Specs Card
@@ -1504,6 +1672,43 @@ class SettingsPage(QWidget):
     def _select_voice(self, voice_key: str):
         set_voice(voice_key)
         self._update_voice_buttons()
+
+    def _load_ollama_model_to_input(self):
+        if API_FILE.exists():
+            try:
+                data = json.loads(API_FILE.read_text(encoding="utf-8"))
+                self.ollama_input.setText(data.get("ollama_model", "qwen3-coder:480b-cloud"))
+            except Exception:
+                pass
+
+    def _save_ollama_model_from_input(self):
+        model_name = self.ollama_input.text().strip()
+        if not model_name:
+            self.ollama_input.setStyleSheet(f"""
+                QLineEdit {{
+                    background: #000c12; color: {C.WHITE};
+                    border: 1px solid {C.RED}; border-radius: 4px; padding: 4px 10px;
+                }}
+            """)
+            return
+            
+        set_ollama_model(model_name)
+        self.ollama_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: #000c12; color: {C.WHITE};
+                border: 1px solid {C.BORDER}; border-radius: 4px; padding: 4px 10px;
+            }}
+        """)
+        self.save_ollama_btn.setText("APPLIED ✓")
+        QTimer.singleShot(1500, lambda: self.save_ollama_btn.setText("APPLY"))
+
+    def _update_model_buttons(self):
+        for model_key, card in self._model_cards.items():
+            card.update_style(model_key == _current_model)
+
+    def _select_model(self, model_key: str):
+        set_active_model(model_key)
+        self._update_model_buttons()
 
 
 class SetupOverlay(QWidget):
@@ -2146,6 +2351,9 @@ class MainWindow(QMainWindow):
         if not API_FILE.exists(): return False
         try:
             d = json.loads(API_FILE.read_text(encoding="utf-8"))
+            active_model = d.get("active_model", "gemini")
+            if active_model == "ollama":
+                return bool(d.get("os_system"))
             return bool(d.get("gemini_api_key")) and bool(d.get("os_system"))
         except Exception:
             return False
@@ -2189,6 +2397,7 @@ class FridayUI:
     def __init__(self, face_path: str, size=None):
         load_theme()  # Load saved theme
         load_voice()  # Load saved voice
+        load_active_model()  # Load active model configuration
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
         self._win = MainWindow(face_path)
