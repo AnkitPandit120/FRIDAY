@@ -523,10 +523,15 @@ class FridayLive:
         self._speaking_lock = threading.Lock()
         self.ui.on_text_command = self._on_text_command
         self._turn_done_event: asyncio.Event | None = None
+        self.chat_history   = []
 
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
             return
+        # Append typed user command to history (limit to last 30 messages)
+        self.chat_history.append({"role": "user", "text": text})
+        if len(self.chat_history) > 30:
+            self.chat_history = self.chat_history[-30:]
         asyncio.run_coroutine_threadsafe(
             self.session.send_client_content(
                 turns={"parts": [{"text": text}]},
@@ -559,6 +564,15 @@ class FridayLive:
         self.ui.write_log(f"ERR: {tool_name} — {short}")
         self.speak(f"Sir, {tool_name} encountered an error. {short}")
 
+    def _get_history_str(self) -> str:
+        if not self.chat_history:
+            return ""
+        lines = ["[CONVERSATION HISTORY (RECENT CONTEXT)]"]
+        for turn in self.chat_history[-15:]:  # Keep last 15 turns
+            role = "User" if turn["role"] == "user" else "Friday"
+            lines.append(f"{role}: {turn['text']}")
+        return "\n".join(lines) + "\n\n"
+
     def _build_config(self) -> types.LiveConnectConfig:
         from datetime import datetime
 
@@ -577,6 +591,11 @@ class FridayLive:
         parts = [time_ctx]
         if mem_str:
             parts.append(mem_str)
+        
+        hist_str = self._get_history_str()
+        if hist_str:
+            parts.append(hist_str)
+
         parts.append(sys_prompt)
         
         # Load voice preference from config
@@ -810,11 +829,17 @@ class FridayLive:
                             full_in = " ".join(in_buf).strip()
                             if full_in:
                                 self.ui.write_log(f"You: {full_in}")
+                                self.chat_history.append({"role": "user", "text": full_in})
+                                if len(self.chat_history) > 30:
+                                    self.chat_history = self.chat_history[-30:]
                             in_buf = []
 
                             full_out = " ".join(out_buf).strip()
                             if full_out:
                                 self.ui.write_log(f"Friday: {full_out}")
+                                self.chat_history.append({"role": "friday", "text": full_out})
+                                if len(self.chat_history) > 30:
+                                    self.chat_history = self.chat_history[-30:]
                             out_buf = []
 
                     if response.tool_call:
