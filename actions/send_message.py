@@ -231,26 +231,78 @@ def _get_window_position(app_name: str):
 
 
 def _click_first_search_result(app_name: str) -> bool:
-    """Click the first search result in the sidebar using window-relative coordinates.
-
-    For WhatsApp on macOS:
-    - The sidebar runs from x_start to ~x_start+370
-    - The search bar is at ~y_start+100
-    - 'Chats' header is at ~y_start+170
-    - First chat result is at ~y_start+210
-    Returns True if click was performed, False otherwise.
-    """
-    win = _get_window_position(app_name)
-    if not win:
-        return False
-    wx, wy, ww, wh = win
-    # The first chat result in search is roughly 210px from top, 210px from left
-    click_x = wx + 210
-    click_y = wy + 210
-    print(f"[SendMessage] Clicking first search result at ({click_x}, {click_y})")
-    pyautogui.click(click_x, click_y)
+    """Select the first result in the sidebar using keyboard navigation (Down and Enter)."""
+    print(f"[SendMessage] Selecting first search result via keyboard navigation (Down + Enter)")
+    pyautogui.press("down")
+    time.sleep(0.3)
+    pyautogui.press("enter")
     time.sleep(1.0)
     return True
+
+
+def _verify_message_state_with_vision(app_name: str, receiver: str, expected_text: str, check_sent: bool) -> dict:
+    """Takes a screenshot of the app and uses Gemini to verify if the chat is open and the message is in the correct state."""
+    api_key = _get_api_key()
+    if not api_key:
+        return {"chat_open": True, "message_correct_state": True, "reason": "No API key."}
+
+    w, h = pyautogui.size()
+    img = pyautogui.screenshot()
+    img = img.resize((w, h))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    image_bytes = buf.getvalue()
+
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+    
+    state_desc = "sent (appears in the message bubbles)" if check_sent else "typed in the chat input field (and NOT in the search bar)"
+    
+    prompt = (
+        f"This is a screenshot of a {w}x{h} pixel screen showing the application '{app_name}'. "
+        f"We are trying to send the message '{expected_text}' to the contact '{receiver}'. "
+        f"Please verify if:\n"
+        f"1. The chat with '{receiver}' is currently open and active. Check the active chat header/title at the top to ensure the recipient name matches '{receiver}' (or 'Ankit (You)' for 'Ankit'). It must NOT be a different contact like 'Harsh Maurya'.\n"
+        f"2. The message text '{expected_text}' (or its phonetic translation like 'हेलो' / 'hello') is {state_desc}.\n\n"
+        f"Respond with a JSON object in this format (no markdown code blocks, just the raw JSON):\n"
+        f'{{"chat_open": true, "message_correct_state": true, "reason": "short explanation of what you see"}}'
+    )
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                prompt
+            ],
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "chat_open": {
+                            "type": "BOOLEAN",
+                            "description": "True if the chat with the correct recipient is active/open"
+                        },
+                        "message_correct_state": {
+                            "type": "BOOLEAN",
+                            "description": f"True if the message text is in the expected state ({state_desc})"
+                        },
+                        "reason": {
+                            "type": "STRING",
+                            "description": "Short explanation of findings"
+                        }
+                    },
+                    "required": ["chat_open", "message_correct_state", "reason"]
+                }
+            }
+        )
+        return json.loads(response.text.strip())
+    except Exception as e:
+        print(f"[SendMessage] ⚠️ Vision verification failed: {e}")
+        return {"chat_open": True, "message_correct_state": True, "reason": f"Verification failed: {e}"}
 
 
 def _desktop_send(app_name: str, receiver: str, message: str, press_enter: bool = True) -> str:
@@ -259,6 +311,8 @@ def _desktop_send(app_name: str, receiver: str, message: str, press_enter: bool 
 
     time.sleep(1.0)
 
+    coords = None
+    res = {}
     if app_name.lower() == "whatsapp" and _is_phone_number(receiver):
         formatted_num = _format_whatsapp_number(receiver)
         url = f"whatsapp://send?phone={formatted_num}"
@@ -283,32 +337,84 @@ def _desktop_send(app_name: str, receiver: str, message: str, press_enter: bool 
             return f"Could not find contact '{receiver}' in {app_name}. Please verify the name."
 
         if coords and len(coords) == 2:
-            # Vision AI found exact coordinates — click them
+            # Vision AI found exact coordinates — click twice for focus
             pyautogui.click(coords[0], coords[1])
-            time.sleep(0.8)
+            time.sleep(0.2)
+            pyautogui.click(coords[0], coords[1])
+            time.sleep(1.0)
         else:
             # Fallback: click the first result in the sidebar using window-relative coordinates.
-            # This is more reliable than pressing Enter (which opens the previously active chat).
-            if not _click_first_search_result(app_name):
-                # Last resort: press Enter
-                pyautogui.press("enter")
-                time.sleep(0.8)
+            _click_first_search_result(app_name)
 
-    # Focus/click chat input to be safe, then clear existing text
+    # Paste, verify and correct loop (up to 2 attempts)
     os_name = _get_os()
     select_all = ("command", "a") if os_name == "mac" else ("ctrl", "a")
-    pyautogui.hotkey(*select_all)
-    time.sleep(0.15)
-    pyautogui.press("delete")
-    time.sleep(0.15)
+    
+    for attempt in range(1, 3):
+        # Shift focus to the main chat canvas area before typing to prevent typing in search box
+        win = _get_window_position(app_name)
+        if win:
+            wx, wy, ww, wh = win
+            pyautogui.click(wx + int(ww * 0.6), wy + int(wh * 0.5))
+            time.sleep(0.3)
 
-    _paste_text(message)
-    time.sleep(0.2)
+        # Select all and delete to clear any existing text
+        pyautogui.hotkey(*select_all)
+        time.sleep(0.15)
+        pyautogui.press("delete")
+        time.sleep(0.15)
+
+        _paste_text(message)
+        time.sleep(0.5)
+
+        # Vision Verification
+        verification = _verify_message_state_with_vision(app_name, receiver, message, check_sent=False)
+        print(f"[SendMessage] Vision Verification Attempt {attempt}: {verification}")
+
+        if verification.get("message_correct_state") and verification.get("chat_open"):
+            break
+        else:
+            # If we typed in the search bar instead, clear the search bar first
+            if "search" in verification.get("reason", "").lower():
+                # Focus back to search bar
+                _search_in_app(receiver)
+                time.sleep(0.2)
+                pyautogui.hotkey(*select_all)
+                time.sleep(0.15)
+                pyautogui.press("delete")
+                time.sleep(0.15)
+                pyautogui.press("escape")
+                time.sleep(0.3)
+                
+            # Re-search the contact first to ensure search is active and correct
+            _search_in_app(receiver)
+            time.sleep(1.2)
+            # Re-select the contact
+            if coords and len(coords) == 2:
+                pyautogui.click(coords[0], coords[1])
+                time.sleep(0.2)
+                pyautogui.click(coords[0], coords[1])
+                time.sleep(1.0)
+            else:
+                _click_first_search_result(app_name)
 
     if press_enter:
         pyautogui.press("enter")
-        time.sleep(0.3)
-        return f"Message sent to {receiver} via {app_name}."
+        time.sleep(0.5)
+
+        # Final Verification of sent state
+        verification = _verify_message_state_with_vision(app_name, receiver, message, check_sent=True)
+        print(f"[SendMessage] Vision Sent Verification: {verification}")
+        if verification.get("message_correct_state") and verification.get("chat_open"):
+            return f"Message sent to {receiver} via {app_name}."
+        else:
+            print("[SendMessage] ⚠️ Sent verification failed. Trying to press enter again...")
+            pyautogui.press("enter")
+            time.sleep(0.5)
+            verification = _verify_message_state_with_vision(app_name, receiver, message, check_sent=True)
+            if verification.get("message_correct_state"):
+                return f"Message sent to {receiver} via {app_name}."
+            return f"Could not verify if message was sent: {verification.get('reason')}"
     else:
         return f"TYPED: Message typed for {receiver} via {app_name}."
 
