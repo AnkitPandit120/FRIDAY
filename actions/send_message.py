@@ -184,7 +184,7 @@ def _resolve_contact_with_vision(app_name: str, receiver: str) -> dict:
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
+            model="gemini-2.5-flash",
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
                 prompt
@@ -272,7 +272,7 @@ def _verify_message_state_with_vision(app_name: str, receiver: str, expected_tex
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
+            model="gemini-2.5-flash",
             contents=[
                 types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
                 prompt
@@ -418,6 +418,69 @@ def _desktop_send(app_name: str, receiver: str, message: str, press_enter: bool 
     else:
         return f"TYPED: Message typed for {receiver} via {app_name}."
 
+def _desktop_call(app_name: str, receiver: str, place_call: bool = True) -> str:
+    if not _open_app(app_name):
+        return f"Could not open {app_name}."
+
+    time.sleep(1.0)
+
+    coords = None
+    res = {}
+    if app_name.lower() == "whatsapp" and _is_phone_number(receiver):
+        formatted_num = _format_whatsapp_number(receiver)
+        url = f"whatsapp://send?phone={formatted_num}"
+        print(f"[SendMessage] Opening direct WhatsApp chat URI: {url}")
+        subprocess.Popen(["open", url])
+        time.sleep(2.0)
+    else:
+        _search_in_app(receiver)
+        time.sleep(1.2)
+
+        # Resolve contact using Vision AI
+        res = _resolve_contact_with_vision(app_name, receiver)
+        matches = res.get("matches", [])
+        coords = res.get("click_coords")
+        print(f"[SendMessage] Vision matches: {matches}, click_coords: {coords}")
+
+        if len(matches) > 1:
+            names = ", ".join(f"'{m}'" for m in matches)
+            return f"Multiple contacts found: {names}. Which one would you like to call?"
+
+        if "matches" in res and not matches and not coords:
+            return f"Could not find contact '{receiver}' in {app_name}. Please verify the name."
+
+        if coords and len(coords) == 2:
+            # Vision AI found exact coordinates — click twice for focus
+            pyautogui.click(coords[0], coords[1])
+            time.sleep(0.2)
+            pyautogui.click(coords[0], coords[1])
+            time.sleep(1.0)
+        else:
+            # Fallback: keyboard navigation
+            _click_first_search_result(app_name)
+
+    # Shift focus to the app window
+    win = _get_window_position(app_name)
+    if win:
+        wx, wy, ww, wh = win
+        pyautogui.click(wx + int(ww * 0.6), wy + int(wh * 0.5))
+        time.sleep(0.3)
+
+    if place_call:
+        if app_name.lower() == "whatsapp":
+            print("[SendMessage] Initiating WhatsApp voice call...")
+            os_name = _get_os()
+            if os_name == "mac":
+                pyautogui.hotkey("command", "shift", "c")
+                time.sleep(1.0)
+                return f"Calling {receiver} on WhatsApp."
+            else:
+                return f"Calling via keyboard shortcut is only supported on macOS WhatsApp."
+        else:
+            return f"Calling is currently only supported on WhatsApp."
+    else:
+        return f"TYPED: Opened chat for calling {receiver}."
+
 def _send_whatsapp(receiver: str, message: str, press_enter: bool = True) -> str:
     return _desktop_send("WhatsApp", receiver, message, press_enter)
 
@@ -532,10 +595,11 @@ def send_message(
     message_text = params.get("message_text", "").strip()
     platform     = params.get("platform", "whatsapp").strip()
     confirmed    = params.get("confirmed", False)
+    action_type  = params.get("action_type", "message").strip().lower()
 
     if not receiver:
         return "Please specify a recipient."
-    if not message_text:
+    if action_type == "message" and not message_text:
         return "Please specify the message content."
     if not _PYAUTOGUI:
         return "PyAutoGUI is not installed — cannot control the desktop."
@@ -543,27 +607,66 @@ def send_message(
     app_name = platform.strip().title()
 
     if not confirmed:
-        # Step 1: Open chat and type the message, but do not press enter/send
+        # Step 1: Open chat and prepare, but do not start/send
         try:
-            handler = _resolve_platform(platform)
-            result = handler(receiver, message_text, press_enter=False)
-            if result.startswith("TYPED:"):
-                _LAST_TYPED_STATE = (platform, receiver, message_text)
-                confirmation_msg = f"CONFIRMATION_REQUIRED: Ask the user: 'I have typed the message. Do you want me to send it to {receiver} via {platform}?'"
-                print(f"[SendMessage] 🛑 {confirmation_msg}")
-                if player:
-                    player.write_log(f"[msg] {confirmation_msg}")
-                return confirmation_msg
+            if action_type == "call":
+                result = _desktop_call(app_name, receiver, place_call=False)
+                if result.startswith("TYPED:"):
+                    _LAST_TYPED_STATE = (platform, receiver, "call")
+                    confirmation_msg = f"CONFIRMATION_REQUIRED: Ask the user: 'I have opened the chat. Do you want me to call {receiver} via {platform}?'"
+                    print(f"[SendMessage] 🛑 {confirmation_msg}")
+                    if player:
+                        player.write_log(f"[msg] {confirmation_msg}")
+                    return confirmation_msg
+                else:
+                    return result
             else:
-                return result
+                handler = _resolve_platform(platform)
+                result = handler(receiver, message_text, press_enter=False)
+                if result.startswith("TYPED:"):
+                    _LAST_TYPED_STATE = (platform, receiver, message_text)
+                    confirmation_msg = f"CONFIRMATION_REQUIRED: Ask the user: 'I have typed the message. Do you want me to send it to {receiver} via {platform}?'"
+                    print(f"[SendMessage] 🛑 {confirmation_msg}")
+                    if player:
+                        player.write_log(f"[msg] {confirmation_msg}")
+                    return confirmation_msg
+                else:
+                    return result
         except Exception as e:
-            return f"Could not type message: {e}"
+            return f"Could not prepare: {e}"
 
     # If confirmed is True:
-    # Check if we already typed it. If yes, we can just press enter!
+    if action_type == "call":
+        if _LAST_TYPED_STATE == (platform, receiver, "call"):
+            _LAST_TYPED_STATE = None
+            _open_app(app_name)
+            time.sleep(0.5)
+            # Start call
+            os_name = _get_os()
+            if os_name == "mac" and app_name.lower() == "whatsapp":
+                pyautogui.hotkey("command", "shift", "c")
+                time.sleep(1.0)
+                result = f"Calling {receiver} via WhatsApp."
+            else:
+                result = f"Calling is only supported on WhatsApp for macOS."
+            print(f"[SendMessage] ✅ {result}")
+            if player:
+                player.write_log(f"[msg] {result}")
+            return result
+        else:
+            _LAST_TYPED_STATE = None
+            try:
+                result = _desktop_call(app_name, receiver, place_call=True)
+            except Exception as e:
+                result = f"Could not call: {e}"
+            print(f"[SendMessage] ✅ {result}")
+            if player:
+                player.write_log(f"[msg] {result}")
+            return result
+
+    # Check if we already typed the message
     if _LAST_TYPED_STATE == (platform, receiver, message_text):
         _LAST_TYPED_STATE = None
-        # Make sure the app is focused
         _open_app(app_name)
         time.sleep(0.5)
         pyautogui.press("enter")

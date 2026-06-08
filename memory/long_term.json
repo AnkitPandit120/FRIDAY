@@ -24,7 +24,12 @@
     }
   },
   "projects": {},
-  "relationships": {},
+  "relationships": {
+    "daughter_call": {
+      "value": "user received a call from my daughter",
+      "updated": "2026-06-08"
+    }
+  },
   "wishes": {},
   "notes": {}
 }

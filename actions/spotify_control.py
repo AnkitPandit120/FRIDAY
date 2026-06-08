@@ -44,7 +44,7 @@ def _search_spotify_track(query: str) -> str | None:
             "Return only the raw URL (e.g., https://open.spotify.com/track/...) and absolutely nothing else. "
             "If you cannot find it, reply: NOT_FOUND"
         )
-        for model_name in ["gemini-2.5-flash-lite", "gemini-2.5-flash"]:
+        for model_name in ["gemini-2.5-flash", "gemini-2.5-flash-lite"]:
             try:
                 resp = client.models.generate_content(
                     model=model_name,

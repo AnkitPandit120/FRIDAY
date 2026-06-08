@@ -1,6 +1,25 @@
 from ollama import chat
 from memory.store import get_memory_context, remember, recall
 from app_control.control import handle_app_command
+import json
+import sys
+from pathlib import Path
+
+def _get_ollama_model() -> str:
+    try:
+        def get_base_dir():
+            if getattr(sys, "frozen", False):
+                return Path(sys.executable).parent
+            return Path(__file__).resolve().parent.parent
+
+        path = get_base_dir() / "config" / "api_keys.json"
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            return cfg.get("ollama_model", "qwen3-coder:480b-cloud")
+    except Exception:
+        pass
+    return "qwen3-coder:480b-cloud"
 
 def ask_llm(prompt):
     # First, check if this is an app control command
@@ -37,7 +56,7 @@ When the user asks about something they've told you before, use the memories to 
 Keep responses concise and natural."""
 
     response = chat(
-        model="qwen3-coder:480b-cloud", #qwen3-coder:480b-cloud  and qwen3:8b 
+        model=_get_ollama_model(),
         messages=[
             {
                 "role": "system",

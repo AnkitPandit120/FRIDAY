@@ -596,7 +596,7 @@ Rules:
 
     try:
         resp = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
+            model="gemini-2.5-flash",
             contents=prompt,
         )
         text = re.sub(r"```(?:json)?", "", resp.text).strip().rstrip("`").strip()

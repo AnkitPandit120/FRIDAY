@@ -75,8 +75,9 @@ screen_process
 
 send_message
   receiver: string (required)
-  message_text: string (required)
+  message_text: string (optional, required if action_type is message)
   platform: string (required)
+  action_type: "message" | "call" (optional, default: message)
 
 reminder
   date: string YYYY-MM-DD (required)
@@ -145,6 +146,11 @@ Steps:
 
 send_message | receiver: John, message_text: "There is a meeting tomorrow", platform: WhatsApp
 
+Goal: "Call Harsh Maurya on WhatsApp"
+Steps:
+
+send_message | receiver: "Harsh Maurya", platform: WhatsApp, action_type: call
+
 Goal: "Open the clock and set a reminder for 30 minutes later"
 Steps:
 
@@ -183,7 +189,7 @@ def create_plan(goal: str, context: str = "") -> dict:
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
+            model="gemini-2.5-flash",
             contents=user_input,
             config=types.GenerateContentConfig(
                 system_instruction=PLANNER_PROMPT
