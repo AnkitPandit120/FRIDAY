@@ -25,7 +25,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QTextEdit,
-    QVBoxLayout, QWidget, QProgressBar, QStackedWidget,
+    QVBoxLayout, QWidget, QProgressBar, QStackedWidget, QPlainTextEdit,
 )
 
 def _base_dir() -> Path:
@@ -1539,6 +1539,22 @@ class SetupOverlay(QWidget):
         self.done.emit(key, self._sel_os)
 
 
+class MultiLineInput(QPlainTextEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.send_callback = None
+
+    def keyPressEvent(self, event):
+        # Enter/Return sends the text (Shift+Enter or other modifiers inserts a newline)
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if event.modifiers() == Qt.KeyboardModifier.NoModifier:
+                if self.send_callback:
+                    self.send_callback()
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
+
 class MainWindow(QMainWindow):
     _log_sig   = pyqtSignal(str)
     _state_sig = pyqtSignal(str)
@@ -1915,18 +1931,27 @@ class MainWindow(QMainWindow):
 
     def _build_input_row(self) -> QHBoxLayout:
         row = QHBoxLayout(); row.setSpacing(5)
-        self._input = QLineEdit()
+        self._input = MultiLineInput()
         self._input.setPlaceholderText("Type a command or question…")
         self._input.setFont(QFont("Courier New", 9))
-        self._input.setFixedHeight(30)
+        self._input.setFixedHeight(48)
         self._input.setStyleSheet(f"""
-            QLineEdit {{
+            QPlainTextEdit {{
                 background: #000d14; color: {C.WHITE};
-                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 3px 7px;
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 4px 6px;
             }}
-            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
+            QPlainTextEdit:focus {{ border: 1px solid {C.PRI}; }}
+            QScrollBar:vertical {{
+                background: {C.DARK};
+                width: 6px;
+                border: none;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {C.BORDER};
+                border-radius: 3px;
+            }}
         """)
-        self._input.returnPressed.connect(self._send)
+        self._input.send_callback = self._send
         row.addWidget(self._input)
 
         send = QPushButton("▸")
@@ -2010,7 +2035,7 @@ class MainWindow(QMainWindow):
             """)
 
     def _send(self):
-        txt = self._input.text().strip()
+        txt = self._input.toPlainText().strip()
         if not txt: return
         self._input.clear()
         self._log.append_log(f"You: {txt}")
