@@ -830,7 +830,7 @@ class MetricBar(QWidget):
 
 
 class ChatBubble(QWidget):
-    def __init__(self, text: str, tag: str, parent=None):
+    def __init__(self, text: str, tag: str, typewrite: bool = True, parent=None):
         super().__init__(parent)
         self._text = text
         self._tag = tag
@@ -889,10 +889,13 @@ class ChatBubble(QWidget):
             """)
             self.msg_lbl.setStyleSheet(f"color: {C.TEXT}; background: transparent; border: none;")
             
-            # Start typing simulation
-            self._tmr = QTimer(self)
-            self._tmr.timeout.connect(self._type_step)
-            self._tmr.start(6)
+            if typewrite:
+                # Start typing simulation
+                self._tmr = QTimer(self)
+                self._tmr.timeout.connect(self._type_step)
+                self._tmr.start(6)
+            else:
+                self.msg_lbl.setText(text)
         else:
             main_lay.addStretch(1)
             main_lay.addWidget(self.bubble_frame, stretch=10)
@@ -969,30 +972,52 @@ class LogWidget(QScrollArea):
         
         self.setWidget(self.container)
 
+    def clear_chat(self):
+        # Keep index 0 (the stretch spacer) and delete later everything else
+        while self.layout.count() > 1:
+            item = self.layout.takeAt(1)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+    def append_chat_message(self, text: str, role: str, typewrite: bool = True):
+        if role == "user":
+            tag = "you"
+        elif role == "friday":
+            tag = "ai"
+        elif role == "file":
+            tag = "file"
+        elif role == "err":
+            tag = "err"
+        else:
+            tag = "sys"
+            
+        bubble = ChatBubble(text, tag, typewrite=typewrite)
+        self.layout.insertWidget(self.layout.count() - 1, bubble)
+        QTimer.singleShot(20, self.scroll_to_bottom)
+
     def append_log(self, text: str):
         tl = text.lower()
         cleaned_text = text
         if tl.startswith("you:"):
-            tag = "you"
+            role = "user"
             cleaned_text = text[4:].strip()
         elif tl.startswith("friday:"):
-            tag = "ai"
+            role = "friday"
             cleaned_text = text[7:].strip()
         elif tl.startswith("file:"):
-            tag = "file"
+            role = "file"
             cleaned_text = text[5:].strip()
         elif "err" in tl or tl.startswith("err:"):
-            tag = "err"
+            role = "err"
             if tl.startswith("err:"):
                 cleaned_text = text[4:].strip()
         else:
-            tag = "sys"
+            role = "sys"
             if tl.startswith("sys:"):
                 cleaned_text = text[4:].strip()
                 
-        bubble = ChatBubble(cleaned_text, tag)
-        self.layout.insertWidget(self.layout.count() - 1, bubble)
-        QTimer.singleShot(20, self.scroll_to_bottom)
+        self.append_chat_message(cleaned_text, role, typewrite=True)
 
     def scroll_to_bottom(self):
         bar = self.verticalScrollBar()
@@ -1412,6 +1437,94 @@ class ModelCard(QFrame):
     def mousePressEvent(self, event):
         self.clicked.emit()
         super().mousePressEvent(event)
+
+
+class SessionCard(QFrame):
+    clicked = pyqtSignal(str)
+    deleted = pyqtSignal(str)
+    
+    def __init__(self, session_id: str, title: str, timestamp: float, active: bool, parent=None):
+        super().__init__(parent)
+        self.session_id = session_id
+        self.setObjectName("SessionCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedHeight(50)
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 0, 12, 0)
+        layout.setSpacing(8)
+        
+        # Details container
+        details = QWidget()
+        details.setStyleSheet("background: transparent; border: none;")
+        details_lay = QVBoxLayout(details)
+        details_lay.setContentsMargins(0, 6, 0, 6)
+        details_lay.setSpacing(1)
+        
+        title_lbl = QLabel(title)
+        title_lbl.setFont(QFont("Segoe UI" if _OS == "Darwin" else "Arial", 9, QFont.Weight.Bold))
+        title_lbl.setStyleSheet(f"color: {C.TEXT if active else C.TEXT_MED}; background: transparent; border: none;")
+        details_lay.addWidget(title_lbl)
+        
+        import datetime
+        dt = datetime.datetime.fromtimestamp(timestamp)
+        date_str = dt.strftime("%b %d, %H:%M")
+        
+        date_lbl = QLabel(date_str)
+        date_lbl.setFont(QFont("Courier New", 7))
+        date_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
+        details_lay.addWidget(date_lbl)
+        
+        layout.addWidget(details, stretch=1)
+        
+        # Delete button
+        self.del_btn = QPushButton("✕")
+        self.del_btn.setFixedSize(20, 20)
+        self.del_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self.del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.del_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.TEXT_DIM}; border: none; border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background: rgba(220, 50, 50, 30); color: {C.RED};
+            }}
+        """)
+        self.del_btn.clicked.connect(self._on_delete)
+        layout.addWidget(self.del_btn)
+        
+        self.update_style(active)
+        
+    def update_style(self, active: bool):
+        if active:
+            self.setStyleSheet(f"""
+                QFrame#SessionCard {{
+                    background: {C.PANEL2};
+                    border: 1.5px solid {C.PRI};
+                    border-radius: 6px;
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QFrame#SessionCard {{
+                    background: {C.PANEL};
+                    border: 1px solid {C.BORDER};
+                    border-radius: 6px;
+                }}
+                QFrame#SessionCard:hover {{
+                    background: {C.PANEL2};
+                    border: 1px solid {C.BORDER_B};
+                }}
+            """)
+            
+    def mousePressEvent(self, event):
+        if self.del_btn.geometry().contains(event.pos()):
+            return
+        self.clicked.emit(self.session_id)
+        super().mousePressEvent(event)
+        
+    def _on_delete(self):
+        self.deleted.emit(self.session_id)
 
 
 class SettingsPage(QWidget):
@@ -1996,6 +2109,8 @@ class MultiLineInput(QPlainTextEdit):
 class MainWindow(QMainWindow):
     _log_sig   = pyqtSignal(str)
     _state_sig = pyqtSignal(str)
+    _sessions_sig = pyqtSignal(list, str)
+    _history_sig  = pyqtSignal(list)
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -2010,6 +2125,10 @@ class MainWindow(QMainWindow):
         )
 
         self.on_text_command  = None
+        self.on_session_changed = None
+        self.on_new_session     = None
+        self.on_delete_session  = None
+        
         self._muted           = False
         self._current_file: str | None = None
 
@@ -2075,6 +2194,8 @@ class MainWindow(QMainWindow):
 
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
+        self._sessions_sig.connect(self._update_sessions_ui)
+        self._history_sig.connect(self._load_chat_history_slot)
 
         self._overlay: SetupOverlay | None = None
         self._ready = self._check_config()
@@ -2315,31 +2436,84 @@ class MainWindow(QMainWindow):
             l.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
             return l
 
-        lay.addWidget(_sec("ACTIVITY LOG"))
-        self._log = LogWidget()
-        lay.addWidget(self._log, stretch=1)
+        # Header Bar
+        header_bar = QWidget()
+        header_bar_lay = QHBoxLayout(header_bar)
+        header_bar_lay.setContentsMargins(0, 0, 0, 0)
+        header_bar_lay.setSpacing(4)
+        
+        self.panel_title = QLabel("▸ CHAT SESSION")
+        self.panel_title.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        self.panel_title.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+        header_bar_lay.addWidget(self.panel_title)
+        header_bar_lay.addStretch()
+        
+        btn_new = QPushButton("＋")
+        btn_new.setFixedSize(22, 22)
+        btn_new.setFont(QFont("Segoe UI" if _OS == "Darwin" else "Arial", 10, QFont.Weight.Bold))
+        btn_new.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_new.setToolTip("Start New Chat Session")
+        btn_new.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.PRI}; border: none; border-radius: 11px;
+            }}
+            QPushButton:hover {{
+                background: {C.PRI_GHO}; color: {C.WHITE};
+            }}
+        """)
+        btn_new.clicked.connect(self._on_new_session_btn_clicked)
+        header_bar_lay.addWidget(btn_new)
+        
+        self.btn_history = QPushButton("☰")
+        self.btn_history.setFixedSize(22, 22)
+        self.btn_history.setFont(QFont("Segoe UI" if _OS == "Darwin" else "Arial", 10, QFont.Weight.Bold))
+        self.btn_history.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_history.setToolTip("Show Conversation History")
+        self.btn_history.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.PRI}; border: none; border-radius: 11px;
+            }}
+            QPushButton:hover {{
+                background: {C.PRI_GHO}; color: {C.WHITE};
+            }}
+        """)
+        self.btn_history.clicked.connect(self._toggle_chat_history_view)
+        header_bar_lay.addWidget(self.btn_history)
+        
+        lay.addWidget(header_bar)
 
+        self._chat_stack = QStackedWidget()
+        
+        # --- Page 0: Chat and Input ---
+        chat_page = QWidget()
+        chat_page_lay = QVBoxLayout(chat_page)
+        chat_page_lay.setContentsMargins(0, 0, 0, 0)
+        chat_page_lay.setSpacing(6)
+        
+        self._log = LogWidget()
+        chat_page_lay.addWidget(self._log, stretch=1)
+        
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
-        lay.addWidget(sep)
+        chat_page_lay.addWidget(sep)
 
-        lay.addWidget(_sec("FILE UPLOAD"))
+        chat_page_lay.addWidget(_sec("FILE UPLOAD"))
         self._drop_zone = FileDropZone()
         self._drop_zone.file_selected.connect(self._on_file_selected)
-        lay.addWidget(self._drop_zone)
+        chat_page_lay.addWidget(self._drop_zone)
 
         self._file_hint = QLabel("No file loaded — drop or click above to upload")
         self._file_hint.setFont(QFont("Courier New", 7))
         self._file_hint.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
         self._file_hint.setWordWrap(True)
-        lay.addWidget(self._file_hint)
+        chat_page_lay.addWidget(self._file_hint)
 
         sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine)
         sep2.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
-        lay.addWidget(sep2)
+        chat_page_lay.addWidget(sep2)
 
-        lay.addWidget(_sec("COMMAND INPUT"))
-        lay.addWidget(self._build_input_row())
+        chat_page_lay.addWidget(_sec("COMMAND INPUT"))
+        chat_page_lay.addWidget(self._build_input_row())
 
         self._mute_btn = QPushButton("🎙  MICROPHONE ACTIVE")
         self._mute_btn.setFixedHeight(30)
@@ -2347,7 +2521,7 @@ class MainWindow(QMainWindow):
         self._mute_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._mute_btn.clicked.connect(self._toggle_mute)
         self._style_mute_btn()
-        lay.addWidget(self._mute_btn)
+        chat_page_lay.addWidget(self._mute_btn)
 
         fs_btn = QPushButton("⛶  FULLSCREEN  [F11]")
         fs_btn.setFixedHeight(26)
@@ -2363,7 +2537,48 @@ class MainWindow(QMainWindow):
             }}
         """)
         fs_btn.clicked.connect(self._toggle_fullscreen)
-        lay.addWidget(fs_btn)
+        chat_page_lay.addWidget(fs_btn)
+        
+        self._chat_stack.addWidget(chat_page)
+
+        # --- Page 1: History list ---
+        sessions_page = QWidget()
+        sessions_page_lay = QVBoxLayout(sessions_page)
+        sessions_page_lay.setContentsMargins(0, 0, 0, 0)
+        sessions_page_lay.setSpacing(6)
+        
+        self._sessions_scroll = QScrollArea()
+        self._sessions_scroll.setWidgetResizable(True)
+        self._sessions_scroll.setStyleSheet(f"""
+            QScrollArea {{
+                background: transparent;
+                border: none;
+            }}
+            QScrollBar:vertical {{
+                background: {C.BG};
+                width: 6px;
+                border: none;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {C.BORDER_B};
+                border-radius: 3px;
+                min-height: 20px;
+            }}
+        """)
+        
+        self._sessions_container = QWidget()
+        self._sessions_container.setStyleSheet("background: transparent;")
+        self._sessions_layout = QVBoxLayout(self._sessions_container)
+        self._sessions_layout.setContentsMargins(0, 0, 0, 0)
+        self._sessions_layout.setSpacing(6)
+        self._sessions_layout.addStretch(1)
+        
+        self._sessions_scroll.setWidget(self._sessions_container)
+        sessions_page_lay.addWidget(self._sessions_scroll, stretch=1)
+        
+        self._chat_stack.addWidget(sessions_page)
+        
+        lay.addWidget(self._chat_stack, stretch=1)
 
         return w
 
@@ -2530,6 +2745,67 @@ class MainWindow(QMainWindow):
         self._apply_state("LISTENING")
         self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. FRIDAY online.")
 
+    def _update_sessions_ui(self, sessions_list: list, active_id: str):
+        # Clear existing card widgets (excluding the top stretch/spacer)
+        # Note: self._sessions_layout has addStretch at index 0 or bottom?
+        # Actually in our stacked widget code we did:
+        # self._sessions_layout.addStretch(1) -> added first, so spacer is index 0.
+        # Let's remove widgets at index 1 onwards.
+        while self._sessions_layout.count() > 1:
+            item = self._sessions_layout.takeAt(1)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+                
+        # Populate session cards
+        for s in sessions_list:
+            card = SessionCard(s["id"], s["title"], s["created_at"], s["id"] == active_id)
+            card.clicked.connect(self._on_session_card_clicked)
+            card.deleted.connect(self._on_session_card_deleted)
+            # Insert before bottom stretch
+            self._sessions_layout.insertWidget(self._sessions_layout.count() - 1, card)
+            
+    def _load_chat_history_slot(self, history: list):
+        self._log.clear_chat()
+        for msg in history:
+            role = msg.get("role", "user")
+            text = msg.get("text", "")
+            self._log.append_chat_message(text, role, typewrite=False)
+            
+    def _on_session_card_clicked(self, session_id: str):
+        if self.on_session_changed:
+            self.on_session_changed(session_id)
+        # Switch stack back to chat page
+        self._chat_stack.setCurrentIndex(0)
+        self.panel_title.setText("▸ CHAT SESSION")
+        self.btn_history.setText("☰")
+        self.btn_history.setToolTip("Show Conversation History")
+        
+    def _on_session_card_deleted(self, session_id: str):
+        if self.on_delete_session:
+            self.on_delete_session(session_id)
+            
+    def _on_new_session_btn_clicked(self):
+        if self.on_new_session:
+            self.on_new_session()
+        # Auto navigate to chat page
+        self._chat_stack.setCurrentIndex(0)
+        self.panel_title.setText("▸ CHAT SESSION")
+        self.btn_history.setText("☰")
+        self.btn_history.setToolTip("Show Conversation History")
+        
+    def _toggle_chat_history_view(self):
+        if self._chat_stack.currentIndex() == 0:
+            self._chat_stack.setCurrentIndex(1)
+            self.panel_title.setText("▸ PAST SESSIONS")
+            self.btn_history.setText("💬")
+            self.btn_history.setToolTip("Back to Active Chat")
+        else:
+            self._chat_stack.setCurrentIndex(0)
+            self.panel_title.setText("▸ CHAT SESSION")
+            self.btn_history.setText("☰")
+            self.btn_history.setToolTip("Show Conversation History")
+
 class _RootShim:
     def __init__(self, app: QApplication):
         self._app = app
@@ -2581,6 +2857,36 @@ class FridayUI:
 
     def write_log(self, text: str):
         self._win._log_sig.emit(text)
+
+    @property
+    def on_session_changed(self):
+        return self._win.on_session_changed
+
+    @on_session_changed.setter
+    def on_session_changed(self, cb):
+        self._win.on_session_changed = cb
+
+    @property
+    def on_new_session(self):
+        return self._win.on_new_session
+
+    @on_new_session.setter
+    def on_new_session(self, cb):
+        self._win.on_new_session = cb
+
+    @property
+    def on_delete_session(self):
+        return self._win.on_delete_session
+
+    @on_delete_session.setter
+    def on_delete_session(self, cb):
+        self._win.on_delete_session = cb
+
+    def set_sessions_list(self, sessions_list: list, active_id: str):
+        self._win._sessions_sig.emit(sessions_list, active_id)
+
+    def load_chat_history(self, history: list):
+        self._win._history_sig.emit(history)
 
     def wait_for_api_key(self):
         while not self._win._ready:

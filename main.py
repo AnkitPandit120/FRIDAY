@@ -533,14 +533,132 @@ class FridayLive:
         self._is_speaking   = False
         self._speaking_lock = threading.Lock()
         self.ui.on_text_command = self._on_text_command
+        
+        # Sessions event callbacks
+        self.ui.on_session_changed = self._on_session_changed
+        self.ui.on_new_session     = self._on_new_session
+        self.ui.on_delete_session  = self._on_delete_session
+        self.session_changed       = False
+        
         self._turn_done_event: asyncio.Event | None = None
         self.chat_history   = []
+        self._load_sessions_db()
+
+    def _load_sessions_db(self):
+        self.sessions = {}
+        self.active_session_id = None
+        SESSIONS_PATH = BASE_DIR / "config" / "sessions.json"
+        
+        if SESSIONS_PATH.exists():
+            try:
+                data = json.loads(SESSIONS_PATH.read_text(encoding="utf-8"))
+                self.sessions = data.get("sessions", {})
+                self.active_session_id = data.get("active_session_id")
+            except Exception as e:
+                print(f"[Sessions] Error loading sessions: {e}")
+                
+        # Create default session if empty
+        if not self.sessions or not self.active_session_id or self.active_session_id not in self.sessions:
+            self._create_new_session_db("New Chat")
+        else:
+            self.chat_history = self.sessions[self.active_session_id].get("history", [])
+            
+        self._sync_sessions_to_ui()
+
+    def _create_new_session_db(self, title="New Chat"):
+        import time, uuid
+        session_id = f"session_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        self.sessions[session_id] = {
+            "id": session_id,
+            "title": title,
+            "created_at": time.time(),
+            "history": []
+        }
+        self.active_session_id = session_id
+        self.chat_history = []
+        self._save_sessions_db()
+        return session_id
+
+    def _save_sessions_db(self):
+        if self.active_session_id in self.sessions:
+            if len(self.chat_history) > 30:
+                self.chat_history = self.chat_history[-30:]
+            self.sessions[self.active_session_id]["history"] = self.chat_history
+            
+            # Dynamic auto-title generator from first query
+            if self.sessions[self.active_session_id]["title"] == "New Chat" and self.chat_history:
+                first_query = None
+                for msg in self.chat_history:
+                    if msg["role"] == "user" and not msg["text"].startswith("[FILE_UPLOADED]"):
+                        first_query = msg["text"]
+                        break
+                if first_query:
+                    cleaned_title = first_query[:28] + "..." if len(first_query) > 28 else first_query
+                    self.sessions[self.active_session_id]["title"] = cleaned_title
+                    
+        SESSIONS_PATH = BASE_DIR / "config" / "sessions.json"
+        SESSIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            SESSIONS_PATH.write_text(json.dumps({
+                "active_session_id": self.active_session_id,
+                "sessions": self.sessions
+            }, indent=4), encoding="utf-8")
+        except Exception as e:
+            print(f"[Sessions] Error saving sessions: {e}")
+
+    def _sync_sessions_to_ui(self):
+        sessions_list = []
+        for sid, sdata in self.sessions.items():
+            sessions_list.append({
+                "id": sdata["id"],
+                "title": sdata["title"],
+                "created_at": sdata.get("created_at", 0)
+            })
+        sessions_list.sort(key=lambda x: x["created_at"], reverse=True)
+        self.ui.set_sessions_list(sessions_list, self.active_session_id)
+
+    def _on_session_changed(self, session_id: str):
+        if session_id == self.active_session_id:
+            return
+        self._save_sessions_db()
+        self.active_session_id = session_id
+        self.chat_history = self.sessions[session_id].get("history", [])
+        self._save_sessions_db()
+        self._sync_sessions_to_ui()
+        self.session_changed = True
+        print(f"[Sessions] Switched to session {session_id}")
+
+    def _on_new_session(self):
+        self._save_sessions_db()
+        new_id = self._create_new_session_db("New Chat")
+        self._sync_sessions_to_ui()
+        self.session_changed = True
+        print(f"[Sessions] Created new session {new_id}")
+
+    def _on_delete_session(self, session_id: str):
+        if session_id in self.sessions:
+            del self.sessions[session_id]
+            
+        if self.active_session_id == session_id or not self.sessions:
+            if self.sessions:
+                self.active_session_id = list(self.sessions.keys())[0]
+                self.chat_history = self.sessions[self.active_session_id].get("history", [])
+            else:
+                self._create_new_session_db("New Chat")
+            self.session_changed = True
+            
+        self._save_sessions_db()
+        self._sync_sessions_to_ui()
+        print(f"[Sessions] Deleted session {session_id}")
 
     def _on_text_command(self, text: str):
         # Append typed user command to history (limit to last 30 messages)
         self.chat_history.append({"role": "user", "text": text})
         if len(self.chat_history) > 30:
             self.chat_history = self.chat_history[-30:]
+        
+        self._save_sessions_db()
+        self._sync_sessions_to_ui()
 
         active_model = _get_active_model()
         if active_model == "ollama":
@@ -565,6 +683,8 @@ class FridayLive:
             from ai.chat import ask_llm
             response = ask_llm(text)
             self.chat_history.append({"role": "friday", "text": response})
+            self._save_sessions_db()
+            self._sync_sessions_to_ui()
             self.ui.write_log(f"Friday: {response}")
             if not self.ui.muted:
                 from voice.tts import prepare_for_speech
@@ -876,6 +996,10 @@ class FridayLive:
                                     self.chat_history = self.chat_history[-30:]
                             out_buf = []
 
+                            if full_in or full_out:
+                                self._save_sessions_db()
+                                self._sync_sessions_to_ui()
+
                     if response.tool_call:
                         fn_responses = []
                         for fc in response.tool_call.function_calls:
@@ -982,11 +1106,15 @@ class FridayLive:
                     recv_task = tg.create_task(self._receive_audio())
                     play_task = tg.create_task(self._play_audio())
 
-                    # Check periodically if model switched to ollama
-                    while _get_active_model() == "gemini":
+                    # Check periodically if model switched to ollama or session changed
+                    while _get_active_model() == "gemini" and not self.session_changed:
                         await asyncio.sleep(1.0)
 
-                    print("[FRIDAY] 🔌 Model switched to Ollama. Disconnecting Live session...")
+                    if self.session_changed:
+                        self.session_changed = False
+                        print("[FRIDAY] 🔌 Session changed. Disconnecting Live session to reload history...")
+                    else:
+                        print("[FRIDAY] 🔌 Model switched to Ollama. Disconnecting Live session...")
                     send_task.cancel()
                     listen_task.cancel()
                     recv_task.cancel()

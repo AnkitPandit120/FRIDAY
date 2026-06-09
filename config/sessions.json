@@ -1,0 +1,28 @@
+{
+    "active_session_id": "session_1781021965_8f19ef46",
+    "sessions": {
+        "session_1781021960_d680e7d0": {
+            "id": "session_1781021960_d680e7d0",
+            "title": "New Chat",
+            "created_at": 1781021960.411468,
+            "history": []
+        },
+        "session_1781021964_3684ec2e": {
+            "id": "session_1781021964_3684ec2e",
+            "title": "New Chat",
+            "created_at": 1781021964.0701702,
+            "history": []
+        },
+        "session_1781021965_8f19ef46": {
+            "id": "session_1781021965_8f19ef46",
+            "title": "exit",
+            "created_at": 1781021965.767117,
+            "history": [
+                {
+                    "role": "user",
+                    "text": "exit"
+                }
+            ]
+        }
+    }
+}
