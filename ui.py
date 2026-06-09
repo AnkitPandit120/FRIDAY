@@ -564,6 +564,49 @@ class HudCanvas(QWidget):
             self._blink_tick = 0
         self.update()
 
+    def _draw_siri_wave(self, p: QPainter, x_start: float, y_center: float, width: float, max_amp: float):
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        tick = self._tick
+        
+        # Overlay 4 waves with distinct frequencies, phases, amplitudes, and transparency
+        waves = [
+            (1.0,  0.030,  0.08, qcol(C.PRI, 190), 2.2),
+            (0.65, 0.045, -0.11, qcol(C.ACC, 140), 1.6),
+            (0.40, 0.060,  0.15, qcol(C.ACC2, 100), 1.2),
+            (0.20, 0.075, -0.05, qcol(C.WHITE, 70), 0.8),
+        ]
+        
+        for amp_ratio, freq, speed, color, pen_w in waves:
+            path = QPainterPath()
+            first = True
+            phase = tick * speed
+            
+            p.setPen(QPen(color, pen_w))
+            step = 3
+            for x in range(0, int(width) + 1, step):
+                px = x_start + x
+                # Sine envelope to taper at the ends: sin(pi * x / width)
+                envelope = math.sin(math.pi * x / width)
+                
+                # Dynamic amplitude scaling depending on state
+                if self.muted:
+                    amp = 0.5 * envelope
+                elif self.speaking:
+                    # organic breathing pulse + random jitter
+                    amp = max_amp * amp_ratio * envelope * (0.75 + 0.25 * math.sin(tick * 0.18))
+                else:
+                    # listening/processing: gentle idle wave
+                    amp = (max_amp * 0.18) * amp_ratio * envelope * (0.9 + 0.1 * math.cos(tick * 0.08))
+                
+                py = y_center + amp * math.sin(freq * x + phase)
+                
+                if first:
+                    path.moveTo(px, py)
+                    first = False
+                else:
+                    path.lineTo(px, py)
+            p.drawPath(path)
+
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -671,6 +714,12 @@ class HudCanvas(QWidget):
                 p.setBrush(QBrush(QColor(int(oc[0]*frc), int(oc[1]*frc), int(oc[2]*frc), a)))
                 p.setPen(Qt.PenStyle.NoPen)
                 p.drawEllipse(QRectF(cx - r2, cy - r2, r2 * 2, r2 * 2))
+
+            # Glowing core Siri wave overlay (smaller size)
+            if not self.muted:
+                core_amp = 8.0 if self.speaking else 2.0
+                self._draw_siri_wave(p, cx - orb_r * 0.8, cy, orb_r * 1.6, core_amp)
+
             p.setPen(QPen(qcol(C.PRI, min(255, int(self._halo * 2))), 1))
             p.setFont(QFont("Courier New", 13, QFont.Weight.Bold))
             p.drawText(QRectF(cx - 80, cy - 14, 160, 28),
@@ -706,31 +755,20 @@ class HudCanvas(QWidget):
         p.setFont(QFont("Courier New", 11, QFont.Weight.Bold))
         p.drawText(QRectF(0, sy, W, 26), Qt.AlignmentFlag.AlignCenter, txt)
 
-        # waveform
-        wy = sy + 30
-        N, bw = 36, 8
-        wx0 = (W - N * bw) / 2
-        for i in range(N):
-            if self.muted:
-                hgt, cl = 2, qcol(C.MUTED_C)
-            elif self.speaking:
-                hgt = random.randint(3, 20)
-                cl  = qcol(C.PRI) if hgt > 12 else qcol(C.PRI_DIM)
-            else:
-                hgt = int(3 + 2 * math.sin(self._tick * 0.09 + i * 0.6))
-                cl  = qcol(C.BORDER_B)
-            p.fillRect(QRectF(wx0 + i * bw, wy + 20 - hgt, bw - 1, hgt), cl)
+        # fluid audio sine wave visualizer
+        wy = sy + 40
+        wave_w = min(W * 0.65, 450.0)
+        wx0 = (W - wave_w) / 2
+        self._draw_siri_wave(p, wx0, wy, wave_w, 24.0)
 
 class MetricBar(QWidget):
-
     def __init__(self, label: str, color: str = C.PRI, parent=None):
         super().__init__(parent)
         self._label = label
         self._color = color
         self._value = 0.0       # 0–100
         self._text  = "--"
-        self.setFixedHeight(38)
-        self.setMinimumWidth(80)
+        self.setFixedSize(120, 68)
 
     def set_value(self, pct: float, text: str):
         self._value = max(0.0, min(100.0, pct))
@@ -742,124 +780,223 @@ class MetricBar(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         W, H = self.width(), self.height()
 
-        p.setBrush(QBrush(qcol(C.PANEL2)))
-        p.setPen(QPen(qcol(C.BORDER_A), 1))
-        p.drawRoundedRect(QRectF(1, 1, W - 2, H - 2), 4, 4)
+        # Custom semi-transparent cockpit-style backing panel
+        p.setBrush(QBrush(qcol(C.PANEL2, 100)))
+        p.setPen(QPen(qcol(C.BORDER_A, 110), 1))
+        p.drawRoundedRect(QRectF(4, 2, W - 8, H - 4), 6, 6)
 
-        bar_h   = 4
-        bar_y   = H - bar_h - 5
-        bar_w   = W - 12
-        bar_x   = 6
-        fill_w  = int(bar_w * self._value / 100)
+        # Gauge specs
+        cx, cy = W / 2, 28
+        r = 18
 
-        p.setBrush(QBrush(qcol(C.BAR_BG)))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, bar_h), 2, 2)
+        # Draw dark track ring
+        p.setPen(QPen(qcol(C.BAR_BG, 180), 3.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(QPointF(cx, cy), r, r)
 
+        # Dynamic arc color based on metrics threshold
         if self._value > 85:
-            bar_col = qcol(C.RED)
+            col = qcol(C.RED)
         elif self._value > 65:
-            bar_col = qcol(C.ACC)
+            col = qcol(C.ACC)
         else:
-            bar_col = qcol(self._color)
+            col = qcol(self._color)
 
-        if fill_w > 0:
-            p.setBrush(QBrush(bar_col))
-            p.drawRoundedRect(QRectF(bar_x, bar_y, fill_w, bar_h), 2, 2)
+        # Draw glowing background sweep arc (translucent broad pen)
+        span_angle = -int(self._value * 3.6 * 16)
+        glow_pen = QPen(col, 5.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        glow_pen.setColor(qcol(col.name(), 40))
+        p.setPen(glow_pen)
+        rect = QRectF(cx - r, cy - r, r * 2, r * 2)
+        p.drawArc(rect, 90 * 16, span_angle)
 
+        # Draw active progress arc (opaque sharp pen)
+        active_pen = QPen(col, 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        p.setPen(active_pen)
+        p.drawArc(rect, 90 * 16, span_angle)
+
+        # Draw dynamic value inside gauge
+        p.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        p.setPen(QPen(col if self._text != "--" else qcol(C.TEXT_DIM), 1))
+        disp_txt = self._text.replace("/s", "") # trim net speed string to fit
+        if len(disp_txt) > 5:
+            p.setFont(QFont("Courier New", 6, QFont.Weight.Bold))
+        p.drawText(QRectF(cx - r, cy - 8, r * 2, 16), Qt.AlignmentFlag.AlignCenter, disp_txt)
+
+        # Draw system label underneath gauge
         p.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
         p.setPen(QPen(qcol(C.TEXT_DIM), 1))
-        p.drawText(QRectF(8, 5, 50, 14), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self._label)
+        p.drawText(QRectF(0, cy + r + 2, W, 12), Qt.AlignmentFlag.AlignCenter, self._label)
 
-        p.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
-        p.setPen(QPen(bar_col if self._text != "--" else qcol(C.TEXT_DIM), 1))
-        p.drawText(QRectF(0, 4, W - 6, 16), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, self._text)
 
-class LogWidget(QTextEdit):
-    _sig = pyqtSignal(str)
+class ChatBubble(QWidget):
+    def __init__(self, text: str, tag: str, parent=None):
+        super().__init__(parent)
+        self._text = text
+        self._tag = tag
+        self._displayed_text = ""
+        self._char_idx = 0
+        
+        main_lay = QHBoxLayout(self)
+        main_lay.setContentsMargins(6, 4, 6, 4)
+        main_lay.setSpacing(0)
+        
+        self.bubble_frame = QFrame()
+        self.bubble_frame.setObjectName("BubbleFrame")
+        
+        bubble_lay = QVBoxLayout(self.bubble_frame)
+        bubble_lay.setContentsMargins(10, 8, 10, 8)
+        bubble_lay.setSpacing(3)
+        
+        self.sender_lbl = QLabel()
+        self.sender_lbl.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        bubble_lay.addWidget(self.sender_lbl)
+        
+        self.msg_lbl = QLabel()
+        self.msg_lbl.setWordWrap(True)
+        self.msg_lbl.setTextFormat(Qt.TextFormat.PlainText)
+        self.msg_lbl.setFont(QFont("Segoe UI" if _OS == "Darwin" else "Arial", 9))
+        self.msg_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        bubble_lay.addWidget(self.msg_lbl)
+        
+        if tag == "you":
+            main_lay.addStretch(1)
+            main_lay.addWidget(self.bubble_frame, stretch=6)
+            self.sender_lbl.setText("YOU")
+            self.sender_lbl.setStyleSheet(f"color: {C.ACC2}; background: transparent; border: none;")
+            self.bubble_frame.setStyleSheet(f"""
+                QFrame#BubbleFrame {{
+                    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(100, 70, 220, 24), stop:1 rgba(150, 100, 255, 12));
+                    border: 1px solid {C.BORDER};
+                    border-radius: 10px;
+                    border-top-right-radius: 2px;
+                }}
+            """)
+            self.msg_lbl.setStyleSheet(f"color: {C.WHITE}; background: transparent; border: none;")
+            self.msg_lbl.setText(text)
+        elif tag == "ai":
+            main_lay.addWidget(self.bubble_frame, stretch=6)
+            main_lay.addStretch(1)
+            self.sender_lbl.setText("F.R.I.D.A.Y.")
+            self.sender_lbl.setStyleSheet(f"color: {C.PRI}; background: transparent; border: none;")
+            self.bubble_frame.setStyleSheet(f"""
+                QFrame#BubbleFrame {{
+                    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(0, 80, 120, 24), stop:1 rgba(0, 150, 200, 12));
+                    border: 1px solid {C.PRI_DIM};
+                    border-radius: 10px;
+                    border-top-left-radius: 2px;
+                }}
+            """)
+            self.msg_lbl.setStyleSheet(f"color: {C.TEXT}; background: transparent; border: none;")
+            
+            # Start typing simulation
+            self._tmr = QTimer(self)
+            self._tmr.timeout.connect(self._type_step)
+            self._tmr.start(6)
+        else:
+            main_lay.addStretch(1)
+            main_lay.addWidget(self.bubble_frame, stretch=10)
+            main_lay.addStretch(1)
+            
+            if tag == "err":
+                lbl_color = C.RED
+                bg_style = f"background-color: rgba(220, 50, 50, 10); border: 1px dashed {C.RED};"
+            elif tag == "file":
+                lbl_color = C.GREEN
+                bg_style = f"background-color: rgba(50, 220, 50, 10); border: 1px dashed {C.GREEN};"
+            else:
+                lbl_color = C.TEXT_MED
+                bg_style = f"background-color: rgba(255, 255, 255, 6); border: 1px solid {C.BORDER};"
+                
+            self.sender_lbl.setText(tag.upper())
+            self.sender_lbl.setStyleSheet(f"color: {lbl_color}; background: transparent; border: none;")
+            self.bubble_frame.setStyleSheet(f"""
+                QFrame#BubbleFrame {{
+                    {bg_style}
+                    border-radius: 6px;
+                }}
+            """)
+            self.msg_lbl.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent; border: none;")
+            self.msg_lbl.setFont(QFont("Courier New", 8))
+            self.msg_lbl.setText(text)
 
+    def _type_step(self):
+        if self._char_idx < len(self._text):
+            self._displayed_text += self._text[self._char_idx]
+            self.msg_lbl.setText(self._displayed_text)
+            self._char_idx += 1
+            
+            # Auto scroll scrollarea
+            p_scroll = self.parentWidget()
+            while p_scroll and not hasattr(p_scroll, "scroll_to_bottom"):
+                p_scroll = p_scroll.parentWidget()
+            if p_scroll:
+                p_scroll.scroll_to_bottom()
+        else:
+            self._tmr.stop()
+
+
+class LogWidget(QScrollArea):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setReadOnly(True)
-        self.setFont(QFont("Courier New", 9))
+        self.setWidgetResizable(True)
         self.setStyleSheet(f"""
-            QTextEdit {{
-                background: {C.PANEL};
-                color: {C.TEXT};
-                border: 1px solid {C.BORDER};
-                border-radius: 4px;
-                padding: 6px;
-                selection-background-color: {C.PRI_GHO};
+            QScrollArea {{
+                background: transparent;
+                border: none;
             }}
             QScrollBar:vertical {{
                 background: {C.BG};
-                width: 8px;
+                width: 6px;
                 border: none;
             }}
             QScrollBar::handle:vertical {{
                 background: {C.BORDER_B};
-                border-radius: 4px;
+                border-radius: 3px;
                 min-height: 20px;
             }}
         """)
-        self._queue: list[str] = []
-        self._typing  = False
-        self._text    = ""
-        self._pos     = 0
-        self._tag     = "sys"
-        self._tmr = QTimer(self)
-        self._tmr.timeout.connect(self._step)
-        self._sig.connect(self._enqueue)
+        
+        self.container = QWidget()
+        self.container.setStyleSheet("background: transparent;")
+        
+        self.layout = QVBoxLayout(self.container)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(6)
+        
+        # Spacer at top pushing bubbles to bottom
+        self.layout.addStretch(1)
+        
+        self.setWidget(self.container)
 
     def append_log(self, text: str):
-        self._sig.emit(text)
-
-    def _enqueue(self, text: str):
-        self._queue.append(text)
-        if not self._typing:
-            self._next()
-
-    def _next(self):
-        if not self._queue:
-            self._typing = False
-            return
-        self._typing = True
-        self._text   = self._queue.pop(0)
-        self._pos    = 0
-        tl = self._text.lower()
-        if   tl.startswith("you:"):    self._tag = "you"
-        elif tl.startswith("friday:"): self._tag = "ai"
-        elif tl.startswith("file:"):   self._tag = "file"
-        elif "err" in tl:              self._tag = "err"
-        else:                          self._tag = "sys"
-        self._tmr.start(6)
-
-    def _step(self):
-        if self._pos < len(self._text):
-            ch  = self._text[self._pos]
-            cur = self.textCursor()
-            fmt = cur.charFormat()
-            col = {
-                "you":  qcol(C.WHITE),
-                "ai":   qcol(C.PRI),
-                "err":  qcol(C.RED),
-                "file": qcol(C.GREEN),
-                "sys":  qcol(C.ACC2),
-            }.get(self._tag, qcol(C.TEXT))
-            fmt.setForeground(QBrush(col))
-            cur.movePosition(cur.MoveOperation.End)
-            cur.insertText(ch, fmt)
-            self.setTextCursor(cur)
-            self.ensureCursorVisible()
-            self._pos += 1
+        tl = text.lower()
+        cleaned_text = text
+        if tl.startswith("you:"):
+            tag = "you"
+            cleaned_text = text[4:].strip()
+        elif tl.startswith("friday:"):
+            tag = "ai"
+            cleaned_text = text[7:].strip()
+        elif tl.startswith("file:"):
+            tag = "file"
+            cleaned_text = text[5:].strip()
+        elif "err" in tl or tl.startswith("err:"):
+            tag = "err"
+            if tl.startswith("err:"):
+                cleaned_text = text[4:].strip()
         else:
-            self._tmr.stop()
-            cur = self.textCursor()
-            cur.movePosition(cur.MoveOperation.End)
-            cur.insertText("\n")
-            self.setTextCursor(cur)
-            self.ensureCursorVisible()
-            QTimer.singleShot(20, self._next)
+            tag = "sys"
+            if tl.startswith("sys:"):
+                cleaned_text = text[4:].strip()
+                
+        bubble = ChatBubble(cleaned_text, tag)
+        self.layout.insertWidget(self.layout.count() - 1, bubble)
+        QTimer.singleShot(20, self.scroll_to_bottom)
+
+    def scroll_to_bottom(self):
+        bar = self.verticalScrollBar()
+        bar.setValue(bar.maximum())
 
 _FILE_ICONS = {
     "image":   ("🖼", "#00d4ff"), "video":   ("🎬", "#ff6b00"),
@@ -1091,7 +1228,7 @@ class ThemeCard(QFrame):
         
         # Name
         lbl = QLabel(theme_info["name"])
-        lbl.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        lbl.setFont(QFont("Segoe UI" if _OS == "Darwin" else "Arial", 9, QFont.Weight.Bold))
         lbl.setStyleSheet(f"color: {C.TEXT}; background: transparent; border: none;")
         layout.addWidget(lbl)
         layout.addStretch()
@@ -1114,7 +1251,7 @@ class ThemeCard(QFrame):
                 QFrame#ThemeCard {{
                     background: {C.PANEL2};
                     border: 2px solid {C.PRI};
-                    border-radius: 6px;
+                    border-radius: 8px;
                 }}
             """)
         else:
@@ -1122,7 +1259,7 @@ class ThemeCard(QFrame):
                 QFrame#ThemeCard {{
                     background: {C.PANEL};
                     border: 1px solid {C.BORDER};
-                    border-radius: 6px;
+                    border-radius: 8px;
                 }}
                 QFrame#ThemeCard:hover {{
                     background: {C.PANEL2};
@@ -1159,12 +1296,12 @@ class VoiceCard(QFrame):
         info_lay.setSpacing(1)
         
         voice_lbl = QLabel(voice_key)
-        voice_lbl.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        voice_lbl.setFont(QFont("Segoe UI" if _OS == "Darwin" else "Arial", 9, QFont.Weight.Bold))
         voice_lbl.setStyleSheet(f"color: {C.TEXT}; background: transparent; border: none;")
         info_lay.addWidget(voice_lbl)
         
         desc_lbl = QLabel(label)
-        desc_lbl.setFont(QFont("Courier New", 7))
+        desc_lbl.setFont(QFont("Segoe UI" if _OS == "Darwin" else "Arial", 8))
         desc_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
         info_lay.addWidget(desc_lbl)
         
@@ -1172,7 +1309,7 @@ class VoiceCard(QFrame):
         layout.addStretch()
         
         mic_icon = QLabel("🎙")
-        mic_icon.setFont(QFont("Courier New", 12))
+        mic_icon.setFont(QFont("Segoe UI" if _OS == "Darwin" else "Arial", 11))
         mic_icon.setStyleSheet(f"color: {C.PRI if active else C.TEXT_DIM}; background: transparent; border: none;")
         layout.addWidget(mic_icon)
         
@@ -1185,7 +1322,7 @@ class VoiceCard(QFrame):
                 QFrame#VoiceCard {{
                     background: {C.PANEL2};
                     border: 2px solid {C.PRI};
-                    border-radius: 6px;
+                    border-radius: 8px;
                 }}
             """)
         else:
@@ -1193,7 +1330,7 @@ class VoiceCard(QFrame):
                 QFrame#VoiceCard {{
                     background: {C.PANEL};
                     border: 1px solid {C.BORDER};
-                    border-radius: 6px;
+                    border-radius: 8px;
                 }}
                 QFrame#VoiceCard:hover {{
                     background: {C.PANEL2};
@@ -1230,12 +1367,12 @@ class ModelCard(QFrame):
         info_lay.setSpacing(1)
         
         title_lbl = QLabel(model_key.upper())
-        title_lbl.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        title_lbl.setFont(QFont("Segoe UI" if _OS == "Darwin" else "Arial", 9, QFont.Weight.Bold))
         title_lbl.setStyleSheet(f"color: {C.TEXT}; background: transparent; border: none;")
         info_lay.addWidget(title_lbl)
         
         desc_lbl = QLabel(label)
-        desc_lbl.setFont(QFont("Courier New", 7))
+        desc_lbl.setFont(QFont("Segoe UI" if _OS == "Darwin" else "Arial", 8))
         desc_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: none;")
         info_lay.addWidget(desc_lbl)
         
@@ -1243,7 +1380,7 @@ class ModelCard(QFrame):
         layout.addStretch()
         
         brain_icon = QLabel("🧠")
-        brain_icon.setFont(QFont("Courier New", 12))
+        brain_icon.setFont(QFont("Segoe UI" if _OS == "Darwin" else "Arial", 11))
         brain_icon.setStyleSheet(f"color: {C.PRI if active else C.TEXT_DIM}; background: transparent; border: none;")
         layout.addWidget(brain_icon)
         
@@ -1256,7 +1393,7 @@ class ModelCard(QFrame):
                 QFrame#ModelCard {{
                     background: {C.PANEL2};
                     border: 2px solid {C.PRI};
-                    border-radius: 6px;
+                    border-radius: 8px;
                 }}
             """)
         else:
@@ -1264,7 +1401,7 @@ class ModelCard(QFrame):
                 QFrame#ModelCard {{
                     background: {C.PANEL};
                     border: 1px solid {C.BORDER};
-                    border-radius: 6px;
+                    border-radius: 8px;
                 }}
                 QFrame#ModelCard:hover {{
                     background: {C.PANEL2};
@@ -2202,7 +2339,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(sep2)
 
         lay.addWidget(_sec("COMMAND INPUT"))
-        lay.addLayout(self._build_input_row())
+        lay.addWidget(self._build_input_row())
 
         self._mute_btn = QPushButton("🎙  MICROPHONE ACTIVE")
         self._mute_btn.setFixedHeight(30)
@@ -2230,45 +2367,54 @@ class MainWindow(QMainWindow):
 
         return w
 
-    def _build_input_row(self) -> QHBoxLayout:
-        row = QHBoxLayout(); row.setSpacing(5)
-        self._input = MultiLineInput()
-        self._input.setPlaceholderText("Type a command or question…")
-        self._input.setFont(QFont("Courier New", 9))
-        self._input.setFixedHeight(48)
-        self._input.setStyleSheet(f"""
-            QPlainTextEdit {{
-                background: #000d14; color: {C.WHITE};
-                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 4px 6px;
+    def _build_input_row(self) -> QWidget:
+        container = QFrame()
+        container.setObjectName("InputContainer")
+        container.setStyleSheet(f"""
+            QFrame#InputContainer {{
+                background-color: #000c14;
+                border: 1px solid {C.BORDER};
+                border-radius: 18px;
             }}
-            QPlainTextEdit:focus {{ border: 1px solid {C.PRI}; }}
-            QScrollBar:vertical {{
-                background: {C.DARK};
-                width: 6px;
-                border: none;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {C.BORDER};
-                border-radius: 3px;
+            QFrame#InputContainer:focus-within {{
+                border: 1px solid {C.PRI};
             }}
         """)
+        
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(12, 1, 8, 1)
+        layout.setSpacing(6)
+
+        self._input = MultiLineInput()
+        self._input.setPlaceholderText("Type a command or question…")
+        self._input.setFont(QFont("Segoe UI" if _OS == "Darwin" else "Arial", 9))
+        self._input.setFixedHeight(34)
+        self._input.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._input.setStyleSheet("""
+            QPlainTextEdit {
+                background: transparent;
+                color: #ffffff;
+                border: none;
+                padding: 6px 2px;
+            }
+        """)
         self._input.send_callback = self._send
-        row.addWidget(self._input)
+        layout.addWidget(self._input, stretch=1)
 
         send = QPushButton("▸")
-        send.setFixedSize(30, 30)
-        send.setFont(QFont("Courier New", 11, QFont.Weight.Bold))
+        send.setFixedSize(26, 26)
+        send.setFont(QFont("Courier New", 12, QFont.Weight.Bold))
         send.setCursor(Qt.CursorShape.PointingHandCursor)
         send.setStyleSheet(f"""
             QPushButton {{
-                background: {C.PANEL}; color: {C.PRI};
-                border: 1px solid {C.PRI_DIM}; border-radius: 3px;
+                background: {C.PANEL2}; color: {C.PRI};
+                border: 1px solid {C.BORDER}; border-radius: 13px;
             }}
-            QPushButton:hover {{ background: {C.PRI_GHO}; border: 1px solid {C.PRI}; }}
+            QPushButton:hover {{ background: {C.PRI_GHO}; color: {C.WHITE}; border: 1px solid {C.PRI}; }}
         """)
         send.clicked.connect(self._send)
-        row.addWidget(send)
-        return row
+        layout.addWidget(send)
+        return container
 
     def _build_footer(self) -> QWidget:
         w = QWidget()
@@ -2400,6 +2546,11 @@ class FridayUI:
         load_active_model()  # Load active model configuration
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
+        
+        # Set clean, modern default font
+        font = QFont("Segoe UI" if _OS == "Darwin" else "Arial", 9)
+        self._app.setFont(font)
+        
         self._win = MainWindow(face_path)
         self._win.show()
         self.root = _RootShim(self._app)
