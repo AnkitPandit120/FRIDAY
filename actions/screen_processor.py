@@ -342,10 +342,11 @@ class _VisionSession:
                         transcript.append(chunk)
 
                 if sc.turn_complete:
-                    if transcript and self._player:
+                    if transcript:
                         full = re.sub(r"\s+", " ", " ".join(transcript)).strip()
                         if full:
-                            self._player.write_log(f"Friday: {full}")
+                            if self._player:
+                                self._player.write_log(f"Friday: {full}")
                             print(f"[Vision] 💬 {full}")
                     transcript = []
 
