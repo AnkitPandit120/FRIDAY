@@ -418,7 +418,7 @@ def _desktop_send(app_name: str, receiver: str, message: str, press_enter: bool 
     else:
         return f"TYPED: Message typed for {receiver} via {app_name}."
 
-def _desktop_call(app_name: str, receiver: str, place_call: bool = True) -> str:
+def _desktop_call(app_name: str, receiver: str, place_call: bool = True, call_type: str = "voice") -> str:
     if not _open_app(app_name):
         return f"Could not open {app_name}."
 
@@ -466,20 +466,27 @@ def _desktop_call(app_name: str, receiver: str, place_call: bool = True) -> str:
         pyautogui.click(wx + int(ww * 0.6), wy + int(wh * 0.5))
         time.sleep(0.3)
 
+    call_name = "video call" if call_type == "video" else "voice call"
     if place_call:
         if app_name.lower() == "whatsapp":
-            print("[SendMessage] Initiating WhatsApp voice call...")
+            print(f"[SendMessage] Initiating WhatsApp {call_name}...")
             os_name = _get_os()
             if os_name == "mac":
-                pyautogui.hotkey("command", "shift", "c")
+                hotkey = ("command", "shift", "v") if call_type == "video" else ("command", "shift", "c")
+                pyautogui.hotkey(*hotkey)
                 time.sleep(1.0)
-                return f"Calling {receiver} on WhatsApp."
+                return f"Calling {receiver} on WhatsApp ({call_name})."
+            elif os_name == "windows":
+                hotkey = ("ctrl", "shift", "v") if call_type == "video" else ("ctrl", "shift", "c")
+                pyautogui.hotkey(*hotkey)
+                time.sleep(1.0)
+                return f"Calling {receiver} on WhatsApp ({call_name})."
             else:
-                return f"Calling via keyboard shortcut is only supported on macOS WhatsApp."
+                return f"Calling via keyboard shortcut is only supported on macOS and Windows WhatsApp."
         else:
             return f"Calling is currently only supported on WhatsApp."
     else:
-        return f"TYPED: Opened chat for calling {receiver}."
+        return f"TYPED: Opened chat for {call_name} to {receiver}."
 
 def _send_whatsapp(receiver: str, message: str, press_enter: bool = True) -> str:
     return _desktop_send("WhatsApp", receiver, message, press_enter)
@@ -599,7 +606,11 @@ def send_message(
 
     if not receiver:
         return "Please specify a recipient."
-    if action_type == "message" and not message_text:
+    is_call = action_type in ("call", "voice_call", "video_call")
+    call_type = "video" if action_type == "video_call" else "voice"
+    call_name = "video call" if call_type == "video" else "voice call"
+
+    if not is_call and not message_text:
         return "Please specify the message content."
     if not _PYAUTOGUI:
         return "PyAutoGUI is not installed — cannot control the desktop."
@@ -609,11 +620,11 @@ def send_message(
     if not confirmed:
         # Step 1: Open chat and prepare, but do not start/send
         try:
-            if action_type == "call":
-                result = _desktop_call(app_name, receiver, place_call=False)
+            if is_call:
+                result = _desktop_call(app_name, receiver, place_call=False, call_type=call_type)
                 if result.startswith("TYPED:"):
-                    _LAST_TYPED_STATE = (platform, receiver, "call")
-                    confirmation_msg = f"CONFIRMATION_REQUIRED: Ask the user: 'I have opened the chat. Do you want me to call {receiver} via {platform}?'"
+                    _LAST_TYPED_STATE = (platform, receiver, action_type)
+                    confirmation_msg = f"CONFIRMATION_REQUIRED: Ask the user: 'I have opened the chat. Do you want me to make a {call_name} to {receiver} via {platform}?'"
                     print(f"[SendMessage] 🛑 {confirmation_msg}")
                     if player:
                         player.write_log(f"[msg] {confirmation_msg}")
@@ -636,19 +647,28 @@ def send_message(
             return f"Could not prepare: {e}"
 
     # If confirmed is True:
-    if action_type == "call":
-        if _LAST_TYPED_STATE == (platform, receiver, "call"):
+    if is_call:
+        if _LAST_TYPED_STATE == (platform, receiver, action_type):
             _LAST_TYPED_STATE = None
             _open_app(app_name)
             time.sleep(0.5)
             # Start call
             os_name = _get_os()
-            if os_name == "mac" and app_name.lower() == "whatsapp":
-                pyautogui.hotkey("command", "shift", "c")
-                time.sleep(1.0)
-                result = f"Calling {receiver} via WhatsApp."
+            if app_name.lower() == "whatsapp":
+                if os_name == "mac":
+                    hotkey = ("command", "shift", "v") if call_type == "video" else ("command", "shift", "c")
+                    pyautogui.hotkey(*hotkey)
+                    time.sleep(1.0)
+                    result = f"Calling {receiver} via WhatsApp ({call_name})."
+                elif os_name == "windows":
+                    hotkey = ("ctrl", "shift", "v") if call_type == "video" else ("ctrl", "shift", "c")
+                    pyautogui.hotkey(*hotkey)
+                    time.sleep(1.0)
+                    result = f"Calling {receiver} via WhatsApp ({call_name})."
+                else:
+                    result = f"Calling is only supported on WhatsApp for macOS and Windows."
             else:
-                result = f"Calling is only supported on WhatsApp for macOS."
+                result = f"Calling is currently only supported on WhatsApp."
             print(f"[SendMessage] ✅ {result}")
             if player:
                 player.write_log(f"[msg] {result}")
@@ -656,7 +676,7 @@ def send_message(
         else:
             _LAST_TYPED_STATE = None
             try:
-                result = _desktop_call(app_name, receiver, place_call=True)
+                result = _desktop_call(app_name, receiver, place_call=True, call_type=call_type)
             except Exception as e:
                 result = f"Could not call: {e}"
             print(f"[SendMessage] ✅ {result}")

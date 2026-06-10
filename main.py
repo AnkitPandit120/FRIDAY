@@ -127,14 +127,14 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "send_message",
-        "description": "Sends a text message or places a voice call via WhatsApp, Telegram, or other messaging platform. ALWAYS ask the user for confirmation first before setting confirmed=True. If the user hasn't verbally or textually confirmed yet, call this tool with confirmed=False.",
+        "description": "Sends a text message or places a voice/video call via WhatsApp, Telegram, or other messaging platform. ALWAYS ask the user for confirmation first before setting confirmed=True. If the user hasn't verbally or textually confirmed yet, call this tool with confirmed=False.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "receiver":     {"type": "STRING", "description": "Recipient contact name"},
-                "message_text": {"type": "STRING", "description": "The message to send (leave empty or omit if action_type is 'call')"},
+                "message_text": {"type": "STRING", "description": "The message to send (leave empty or omit if action_type is 'call', 'voice_call' or 'video_call')"},
                 "platform":     {"type": "STRING", "description": "Platform: WhatsApp, Telegram, etc."},
-                "action_type":  {"type": "STRING", "description": "Type of action: 'message' (default) or 'call'"},
+                "action_type":  {"type": "STRING", "description": "Type of action: 'message' (default), 'call' / 'voice_call' (voice call), or 'video_call' (video call)"},
                 "confirmed":    {
                     "type": "BOOLEAN", 
                     "description": "Set to True ONLY if the user has explicitly confirmed via voice or text in the immediate previous turn that they want to send this specific message/make this call."

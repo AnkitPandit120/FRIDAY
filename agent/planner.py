@@ -77,7 +77,7 @@ send_message
   receiver: string (required)
   message_text: string (optional, required if action_type is message)
   platform: string (required)
-  action_type: "message" | "call" (optional, default: message)
+  action_type: "message" | "call" | "voice_call" | "video_call" (optional, default: message)
 
 reminder
   date: string YYYY-MM-DD (required)
@@ -150,6 +150,11 @@ Goal: "Call Harsh Maurya on WhatsApp"
 Steps:
 
 send_message | receiver: "Harsh Maurya", platform: WhatsApp, action_type: call
+
+Goal: "Make a video call to Amit on WhatsApp"
+Steps:
+
+send_message | receiver: "Amit", platform: WhatsApp, action_type: video_call
 
 Goal: "Open the clock and set a reminder for 30 minutes later"
 Steps:
