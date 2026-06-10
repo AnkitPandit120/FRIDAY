@@ -14,6 +14,9 @@ from typing import Optional
 import numpy as np
 import sounddevice as sd
 
+import os
+os.environ["OPENCV_AVFOUNDATION_SKIP_AUTH"] = "1"
+
 try:
     import cv2
     _CV2 = True
