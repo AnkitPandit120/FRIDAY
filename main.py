@@ -660,6 +660,25 @@ class FridayLive:
         self._save_sessions_db()
         self._sync_sessions_to_ui()
 
+        # Check if an agent task is waiting for user input
+        from agent.executor import AgentExecutor
+        if AgentExecutor.input_queues:
+            active_task_id = list(AgentExecutor.input_queues.keys())[0]
+            AgentExecutor.input_queues[active_task_id].put(text)
+            return
+
+        # If Agent Mode is active, submit the command as an agent task
+        if self.ui.agent_mode:
+            from agent.task_queue import get_queue, TaskPriority
+            self.ui.write_log("SYS: Creating autonomous plan...")
+            task_id = get_queue().submit(
+                goal=text,
+                priority=TaskPriority.NORMAL,
+                speak=self.speak,
+                ui=self.ui
+            )
+            return
+
         active_model = _get_active_model()
         if active_model == "ollama":
             # Run Ollama handler in a background thread so we don't block the Qt UI thread
@@ -859,7 +878,12 @@ class FridayLive:
                 from agent.task_queue import get_queue, TaskPriority
                 priority_map = {"low": TaskPriority.LOW, "normal": TaskPriority.NORMAL, "high": TaskPriority.HIGH}
                 priority = priority_map.get(args.get("priority", "normal").lower(), TaskPriority.NORMAL)
-                task_id  = get_queue().submit(goal=args.get("goal", ""), priority=priority, speak=self.speak)
+                task_id  = get_queue().submit(
+                    goal=args.get("goal", ""),
+                    priority=priority,
+                    speak=self.speak,
+                    ui=self.ui
+                )
                 result   = f"Task started (ID: {task_id})."
 
             elif name == "web_search":

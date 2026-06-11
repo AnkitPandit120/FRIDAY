@@ -254,130 +254,203 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
 class AgentExecutor:
 
     MAX_REPLAN_ATTEMPTS = 2
+    input_queues = {}
 
     def execute(
         self,
         goal:        str,
         speak:       Callable | None        = None,
         cancel_flag: threading.Event | None = None,
+        task_id:     str | None             = None,
+        ui:          Any                    = None,
     ) -> str:
         print(f"\n[Executor] 🎯 Goal: {goal}")
+
+        import queue
+        if task_id:
+            AgentExecutor.input_queues[task_id] = queue.Queue()
 
         replan_attempts = 0
         completed_steps = []
         step_results    = {} 
         plan            = create_plan(goal)
 
-        while True:
-            steps = plan.get("steps", [])
+        try:
+            # Plan approval loop if running in agent mode (with UI & task_id)
+            if task_id and ui and ui.agent_mode:
+                while True:
+                    steps = plan.get("steps", [])
+                    if not steps:
+                        msg = "I couldn't create a valid plan for this task, sir."
+                        if speak: speak(msg)
+                        return msg
 
-            if not steps:
-                msg = "I couldn't create a valid plan for this task, sir."
-                if speak: speak(msg)
-                return msg
+                    plan_desc = "\n".join(f"  Step {s['step']}: [{s['tool']}] {s['description']}" for s in steps)
+                    msg = (
+                        f"Sir, I have created a plan to accomplish your goal:\n\n{plan_desc}\n\n"
+                        f"Do you approve? (Type 'yes' to proceed, 'no' to cancel, or type your feedback to modify the plan)"
+                    )
+                    ui.write_log(f"Friday: {msg}")
+                    if speak:
+                        speak("Sir, I have created a plan. Please check the log and confirm if I should proceed.")
 
-            success      = True
-            failed_step  = None
-            failed_error = ""
+                    # Wait for user input
+                    user_response = ""
+                    if task_id in AgentExecutor.input_queues:
+                        user_response = AgentExecutor.input_queues[task_id].get().strip()
 
-            for step in steps:
-                if cancel_flag and cancel_flag.is_set():
-                    if speak: speak("Task cancelled, sir.")
-                    return "Task cancelled."
+                    lowered = user_response.lower()
+                    if lowered in ("yes", "y", "approve", "proceed", "ok"):
+                        ui.write_log("SYS: Plan approved. Executing steps...")
+                        break
+                    elif lowered in ("no", "n", "abort", "cancel", "stop"):
+                        ui.write_log("SYS: Task cancelled by user.")
+                        if speak:
+                            speak("Task cancelled, sir.")
+                        return "Task cancelled by user."
+                    else:
+                        # Replan with feedback
+                        ui.write_log(f"SYS: Replanning with feedback: '{user_response}'")
+                        if speak:
+                            speak("Adjusting plan based on your feedback, sir.")
+                        plan = create_plan(goal, context=f"User feedback on previous plan: {user_response}")
 
-                step_num = step.get("step", "?")
-                tool     = step.get("tool", "generated_code")
-                desc     = step.get("description", "")
-                params   = step.get("parameters", {})
+            # Set UI state to processing while running steps
+            if ui:
+                ui.set_state("PROCESSING")
 
-                params = _inject_context(params, tool, step_results, goal=goal)
+            while True:
+                steps = plan.get("steps", [])
+                if not steps:
+                    msg = "I couldn't create a valid plan for this task, sir."
+                    if speak: speak(msg)
+                    return msg
 
-                print(f"\n[Executor] ▶️ Step {step_num}: [{tool}] {desc}")
+                success      = True
+                failed_step  = None
+                failed_error = ""
 
-                attempt = 1
-                step_ok = False
-
-                while attempt <= 3:
+                for step in steps:
                     if cancel_flag and cancel_flag.is_set():
-                        break
-                    try:
-                        result = _call_tool(tool, params, speak)
-                        step_results[step_num] = result 
-                        completed_steps.append(step)
-                        print(f"[Executor] ✅ Step {step_num} done: {str(result)[:100]}")
-                        step_ok = True
-                        break
+                        if speak: speak("Task cancelled, sir.")
+                        return "Task cancelled."
 
-                    except Exception as e:
-                        error_msg = str(e)
-                        print(f"[Executor] ❌ Step {step_num} attempt {attempt} failed: {error_msg}")
+                    step_num = step.get("step", "?")
+                    tool     = step.get("tool", "generated_code")
+                    desc     = step.get("description", "")
+                    params   = step.get("parameters", {})
 
-                        recovery = analyze_error(step, error_msg, attempt=attempt)
-                        decision = recovery["decision"]
-                        user_msg = recovery.get("user_message", "")
+                    params = _inject_context(params, tool, step_results, goal=goal)
 
-                        if speak and user_msg:
-                            speak(user_msg)
+                    print(f"\n[Executor] ▶️ Step {step_num}: [{tool}] {desc}")
+                    if ui:
+                        ui.write_log(f"Friday: [Step {step_num}] Running {tool} — {desc}")
 
-                        if decision == ErrorDecision.RETRY:
-                            attempt += 1
-                            import time; time.sleep(2)
-                            continue
+                    attempt = 1
+                    step_ok = False
 
-                        elif decision == ErrorDecision.SKIP:
-                            print(f"[Executor] ⏭️ Skipping step {step_num}")
+                    while attempt <= 3:
+                        if cancel_flag and cancel_flag.is_set():
+                            break
+                        try:
+                            result = _call_tool(tool, params, speak)
+                            step_results[step_num] = result 
                             completed_steps.append(step)
+                            print(f"[Executor] ✅ Step {step_num} done: {str(result)[:100]}")
+                            if ui:
+                                ui.write_log(f"Friday: [Step {step_num}] Done.")
                             step_ok = True
                             break
 
-                        elif decision == ErrorDecision.ABORT:
-                            msg = f"Task aborted, sir. {recovery.get('reason', '')}"
-                            if speak: speak(msg)
-                            return msg
+                        except Exception as e:
+                            error_msg = str(e)
+                            print(f"[Executor] ❌ Step {step_num} attempt {attempt} failed: {error_msg}")
+                            if ui:
+                                ui.write_log(f"Friday: [Step {step_num}] Attempt {attempt} failed: {error_msg}")
 
-                        else: 
-                            fix_suggestion = recovery.get("fix_suggestion", "")
-                            if fix_suggestion and tool != "generated_code":
-                                try:
-                                    fixed_step = generate_fix(step, error_msg, fix_suggestion)
-                                    if speak: speak("Trying an alternative approach, sir.")
-                                    res = _call_tool(
-                                        fixed_step["tool"],
-                                        fixed_step["parameters"],
-                                        speak
-                                    )
-                                    step_results[step_num] = res
-                                    completed_steps.append(step)
-                                    step_ok = True
-                                    break
-                                except Exception as fix_err:
-                                    print(f"[Executor] ⚠️ Fix failed: {fix_err}")
+                            recovery = analyze_error(step, error_msg, attempt=attempt)
+                            decision = recovery["decision"]
+                            user_msg = recovery.get("user_message", "")
 
-                            failed_step  = step
-                            failed_error = error_msg
-                            success      = False
-                            break
+                            if speak and user_msg:
+                                speak(user_msg)
 
-                if not step_ok and not failed_step:
-                    failed_step  = step
-                    failed_error = "Max retries exceeded"
-                    success      = False
+                            if decision == ErrorDecision.RETRY:
+                                attempt += 1
+                                import time; time.sleep(2)
+                                continue
 
-                if not success:
-                    break
+                            elif decision == ErrorDecision.SKIP:
+                                print(f"[Executor] ⏭️ Skipping step {step_num}")
+                                completed_steps.append(step)
+                                if ui:
+                                    ui.write_log(f"Friday: Skipping step {step_num}.")
+                                step_ok = True
+                                break
 
-            if success:
-                return self._summarize(goal, completed_steps, speak)
+                            elif decision == ErrorDecision.ABORT:
+                                msg = f"Task aborted, sir. {recovery.get('reason', '')}"
+                                if speak: speak(msg)
+                                return msg
 
-            if replan_attempts >= self.MAX_REPLAN_ATTEMPTS:
-                msg = f"Task failed after {replan_attempts} replan attempts, sir."
-                if speak: speak(msg)
-                return msg
+                            else: 
+                                fix_suggestion = recovery.get("fix_suggestion", "")
+                                if fix_suggestion and tool != "generated_code":
+                                    try:
+                                        fixed_step = generate_fix(step, error_msg, fix_suggestion)
+                                        if speak: speak("Trying an alternative approach, sir.")
+                                        if ui:
+                                            ui.write_log(f"Friday: Trying alternative: [{fixed_step['tool']}] {fixed_step['description']}")
+                                        res = _call_tool(
+                                            fixed_step["tool"],
+                                            fixed_step["parameters"],
+                                            speak
+                                        )
+                                        step_results[step_num] = res
+                                        completed_steps.append(step)
+                                        step_ok = True
+                                        break
+                                    except Exception as fix_err:
+                                        print(f"[Executor] ⚠️ Fix failed: {fix_err}")
 
-            if speak: speak("Adjusting my approach, sir.")
+                                failed_step  = step
+                                failed_error = error_msg
+                                success      = False
+                                break
 
-            replan_attempts += 1
-            plan = replan(goal, completed_steps, failed_step, failed_error)
+                    if not step_ok and not failed_step:
+                        failed_step  = step
+                        failed_error = "Max retries exceeded"
+                        success      = False
+
+                    if not success:
+                        break
+
+                if success:
+                    summary = self._summarize(goal, completed_steps, speak)
+                    if ui:
+                        ui.write_log(f"Friday: {summary}")
+                    return summary
+
+                if replan_attempts >= self.MAX_REPLAN_ATTEMPTS:
+                    msg = f"Task failed after {replan_attempts} replan attempts, sir."
+                    if speak: speak(msg)
+                    if ui:
+                        ui.write_log(f"Friday: {msg}")
+                    return msg
+
+                if speak: speak("Adjusting my approach, sir.")
+                if ui:
+                    ui.write_log("Friday: Adjusting approach and replanning...")
+
+                replan_attempts += 1
+                plan = replan(goal, completed_steps, failed_step, failed_error)
+
+        finally:
+            if task_id and task_id in AgentExecutor.input_queues:
+                del AgentExecutor.input_queues[task_id]
+            if ui:
+                ui.set_state("LISTENING")
 
     def _summarize(self, goal: str, completed_steps: list, speak: Callable | None) -> str:
         fallback = f"All done, sir. Completed {len(completed_steps)} steps for: {goal[:60]}."

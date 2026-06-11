@@ -182,6 +182,8 @@ class TaskQueue:
                 goal        = task.goal,
                 speak       = task.speak,
                 cancel_flag = task.cancel_flag,
+                task_id     = task.task_id,
+                ui          = task.ui,
             )
 
             with self._lock:
