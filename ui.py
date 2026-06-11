@@ -2724,6 +2724,35 @@ class MainWindow(QMainWindow):
                 QPushButton:hover {{ background: #001f10; }}
             """)
 
+    def _toggle_agent_mode(self):
+        self._agent_mode = not self._agent_mode
+        set_agent_mode(self._agent_mode)
+        self._style_agent_mode_btn()
+        if self._agent_mode:
+            self._log.append_log("SYS: Agent Mode active. Commands will execute autonomously with step approval.")
+        else:
+            self._log.append_log("SYS: Agent Mode inactive. Standard live session active.")
+
+    def _style_agent_mode_btn(self):
+        if self._agent_mode:
+            self._agent_mode_btn.setText("🤖  AGENT MODE: ACTIVE")
+            self._agent_mode_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: #000c14; color: {C.PRI};
+                    border: 1px solid {C.PRI}; border-radius: 3px;
+                }}
+                QPushButton:hover {{ background: {C.PRI_GHO}; }}
+            """)
+        else:
+            self._agent_mode_btn.setText("🤖  AGENT MODE: INACTIVE")
+            self._agent_mode_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: #111111; color: {C.TEXT_DIM};
+                    border: 1px solid {C.BORDER}; border-radius: 3px;
+                }}
+                QPushButton:hover {{ background: {C.PANEL2}; color: {C.TEXT_MED}; }}
+            """)
+
     def _send(self):
         txt = self._input.toPlainText().strip()
         if not txt: return
@@ -2871,6 +2900,15 @@ class FridayUI:
     @property
     def current_file(self) -> str | None:
         return self._win._drop_zone.current_file()
+
+    @property
+    def agent_mode(self) -> bool:
+        return self._win._agent_mode
+
+    @agent_mode.setter
+    def agent_mode(self, v: bool):
+        if v != self._win._agent_mode:
+            self._win._toggle_agent_mode()
 
     @property
     def on_text_command(self):

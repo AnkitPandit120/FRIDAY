@@ -31,6 +31,7 @@ class Task:
     error:       str        = field(compare=False, default="")
     speak:       Any        = field(compare=False, default=None)   
     on_complete: Any        = field(compare=False, default=None)  
+    ui:          Any        = field(compare=False, default=None)
     cancel_flag: threading.Event = field(compare=False, default_factory=threading.Event)
 
 
@@ -76,6 +77,7 @@ class TaskQueue:
         priority:    TaskPriority = TaskPriority.NORMAL,
         speak:       Callable | None = None,
         on_complete: Callable | None = None,
+        ui:          Any = None,
     ) -> str:
 
         task_id = str(uuid.uuid4())[:8]
@@ -86,6 +88,7 @@ class TaskQueue:
             goal        = goal,
             speak       = speak,
             on_complete = on_complete,
+            ui          = ui,
         )
 
         with self._condition:
