@@ -927,9 +927,30 @@ class FridayLive:
                 result = f"Unknown tool: {name}"
 
         except Exception as e:
-            result = f"Tool '{name}' failed: {e}"
+            error_msg = str(e)
+            result = f"Tool '{name}' failed: {error_msg}"
             traceback.print_exc()
-            self.speak_error(name, e)
+
+            # Find the original goal from chat history
+            goal = ""
+            for msg in reversed(self.chat_history):
+                if msg["role"] == "user" and not msg["text"].startswith("[FILE_UPLOADED]"):
+                    goal = msg["text"]
+                    break
+
+            if goal:
+                self.ui.write_log(f"SYS: Tool '{name}' failed. Automatic fallback to Agent Mode triggered.")
+                self.speak(f"Sir, {name} failed. Switching to agent mode to accomplish your goal.")
+                from agent.task_queue import get_queue, TaskPriority
+                task_id = get_queue().submit(
+                    goal=goal,
+                    priority=TaskPriority.HIGH,
+                    speak=self.speak,
+                    ui=self.ui
+                )
+                result = f"Tool '{name}' failed: {error_msg}. Automatic fallback to Agent Mode started (Task ID: {task_id})."
+            else:
+                self.speak_error(name, e)
 
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
