@@ -197,6 +197,7 @@ _current_theme = "blue"
 _current_voice = "Charon"
 _current_model = "gemini"
 _ollama_model = "qwen3-coder:480b-cloud"
+_agent_mode = False
 
 def set_theme(theme_name: str):
     global _current_theme
@@ -258,12 +259,13 @@ def set_active_model(model_key: str):
         print(f"Error saving active model: {e}")
 
 def load_active_model():
-    global _current_model, _ollama_model
+    global _current_model, _ollama_model, _agent_mode
     if API_FILE.exists():
         try:
             data = json.loads(API_FILE.read_text(encoding="utf-8"))
             _current_model = data.get("active_model", "gemini")
             _ollama_model = data.get("ollama_model", "qwen3-coder:480b-cloud")
+            _agent_mode = data.get("agent_mode", False)
         except Exception:
             pass
 
@@ -280,6 +282,23 @@ def set_ollama_model(model_name: str):
         API_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
     except Exception as e:
         print(f"Error saving ollama model name: {e}")
+
+def set_agent_mode(enabled: bool):
+    global _agent_mode
+    _agent_mode = enabled
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    try:
+        if API_FILE.exists():
+            data = json.loads(API_FILE.read_text(encoding="utf-8"))
+        else:
+            data = {}
+        data["agent_mode"] = enabled
+        API_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    except Exception as e:
+        print(f"Error saving agent mode: {e}")
+
+def get_agent_mode():
+    return _agent_mode
 
 class _ColorMeta(type):
     def __getattr__(cls, name):
@@ -2130,6 +2149,7 @@ class MainWindow(QMainWindow):
         self.on_delete_session  = None
         
         self._muted           = False
+        self._agent_mode      = get_agent_mode()
         self._current_file: str | None = None
 
         central = QWidget()
@@ -2522,6 +2542,14 @@ class MainWindow(QMainWindow):
         self._mute_btn.clicked.connect(self._toggle_mute)
         self._style_mute_btn()
         chat_page_lay.addWidget(self._mute_btn)
+
+        self._agent_mode_btn = QPushButton("🤖  AGENT MODE: INACTIVE")
+        self._agent_mode_btn.setFixedHeight(30)
+        self._agent_mode_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._agent_mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._agent_mode_btn.clicked.connect(self._toggle_agent_mode)
+        self._style_agent_mode_btn()
+        chat_page_lay.addWidget(self._agent_mode_btn)
 
         fs_btn = QPushButton("⛶  FULLSCREEN  [F11]")
         fs_btn.setFixedHeight(26)
