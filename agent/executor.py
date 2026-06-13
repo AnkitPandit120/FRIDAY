@@ -251,6 +251,10 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
         from actions.system_status import system_status
         return system_status(parameters=parameters, player=None) or "Diagnostics complete."
 
+    elif tool == "text_crypto":
+        from actions.text_crypto import text_crypto
+        return text_crypto(parameters=parameters, player=None) or "Crypto operation complete."
+
     else:
         print(f"[Executor] ⚠️ Unknown tool '{tool}' — falling back to generated_code")
         return _run_generated_code(f"Accomplish this task: {parameters}", speak=speak)

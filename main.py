@@ -33,6 +33,7 @@ from actions.computer_control  import computer_control
 from actions.game_updater      import game_updater
 from actions.spotify_control  import spotify_control
 from actions.system_status import system_status
+from actions.text_crypto import text_crypto
 
 
 def get_base_dir():
@@ -533,6 +534,51 @@ TOOL_DECLARATIONS = [
             "properties": {}
         }
     },
+    {
+        "name": "text_crypto",
+        "description": (
+            "Performs cryptography, encoding, character case conversions, text statistics, "
+            "or generates secure random passwords."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": "hash | encode_base64 | decode_base64 | case_convert | stats | generate_password"
+                },
+                "text": {
+                    "type": "STRING",
+                    "description": "Input text for hash, base64 encoding/decoding, case converting, or stats"
+                },
+                "algorithm": {
+                    "type": "STRING",
+                    "description": "Algorithm for hash action: md5 | sha1 | sha256"
+                },
+                "mode": {
+                    "type": "STRING",
+                    "description": "Case mode: upper | lower | title | swap"
+                },
+                "length": {
+                    "type": "INTEGER",
+                    "description": "Password length (default: 16)"
+                },
+                "uppercase": {
+                    "type": "BOOLEAN",
+                    "description": "Include uppercase letters in password (default: true)"
+                },
+                "digits": {
+                    "type": "BOOLEAN",
+                    "description": "Include numbers in password (default: true)"
+                },
+                "special": {
+                    "type": "BOOLEAN",
+                    "description": "Include symbols/special chars in password (default: true)"
+                }
+            },
+            "required": ["action"]
+        }
+    },
 ]
 
 class FridayLive:
@@ -930,6 +976,10 @@ class FridayLive:
             elif name == "system_status":
                 r = await loop.run_in_executor(None, lambda: system_status(parameters=args, player=self.ui))
                 result = r or "Diagnostics complete."
+
+            elif name == "text_crypto":
+                r = await loop.run_in_executor(None, lambda: text_crypto(parameters=args, player=self.ui))
+                result = r or "Crypto operation done."
 
             elif name == "shutdown_friday":
                 self.ui.write_log("SYS: Shutdown requested.")

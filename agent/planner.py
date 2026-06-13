@@ -104,6 +104,14 @@ flight_finder
 system_status
   (no parameters required)
 
+text_crypto
+  action: "hash" | "encode_base64" | "decode_base64" | "case_convert" | "stats" | "generate_password" (required)
+  text: string (optional)
+  algorithm: "md5" | "sha1" | "sha256" (optional, default: sha256)
+  mode: "upper" | "lower" | "title" | "swap" (optional, default: upper)
+  length: int (optional, default: 16)
+  uppercase, digits, special: boolean (optional, default: true)
+
 code_helper
   action: "write" | "edit" | "run" | "explain" (required)
   description: string (required)
