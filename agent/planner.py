@@ -101,6 +101,9 @@ flight_finder
   destination: string (required)
   date: string (required)
 
+system_status
+  (no parameters required)
+
 code_helper
   action: "write" | "edit" | "run" | "explain" (required)
   description: string (required)

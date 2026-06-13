@@ -32,6 +32,7 @@ from actions.web_search        import web_search as web_search_action
 from actions.computer_control  import computer_control
 from actions.game_updater      import game_updater
 from actions.spotify_control  import spotify_control
+from actions.system_status import system_status
 
 
 def get_base_dir():
@@ -520,6 +521,18 @@ TOOL_DECLARATIONS = [
             "required": ["action"]
         }
     },
+    {
+        "name": "system_status",
+        "description": (
+            "Queries and retrieves the current system hardware and OS diagnostics "
+            "such as CPU usage, core count, virtual memory (RAM) usage, root disk capacity, "
+            "and battery level/plugged-in status."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {}
+        }
+    },
 ]
 
 class FridayLive:
@@ -913,6 +926,10 @@ class FridayLive:
             elif name == "spotify_control":
                 r = await loop.run_in_executor(None, lambda: spotify_control(parameters=args, player=self.ui))
                 result = r or "Done."
+
+            elif name == "system_status":
+                r = await loop.run_in_executor(None, lambda: system_status(parameters=args, player=self.ui))
+                result = r or "Diagnostics complete."
 
             elif name == "shutdown_friday":
                 self.ui.write_log("SYS: Shutdown requested.")
