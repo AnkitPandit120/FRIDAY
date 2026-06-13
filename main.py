@@ -119,11 +119,12 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "weather_report",
-        "description": "Gives the weather report to user",
+        "description": "Gives the weather report to the user, querying live API data with a browser fallback.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "city": {"type": "STRING", "description": "City name"}
+                "city": {"type": "STRING", "description": "City name"},
+                "time": {"type": "STRING", "description": "Time/day relative to today, e.g. 'today', 'tomorrow' (default: 'today')"}
             },
             "required": ["city"]
         }
