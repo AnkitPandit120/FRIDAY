@@ -112,6 +112,13 @@ text_crypto
   length: int (optional, default: 16)
   uppercase, digits, special: boolean (optional, default: true)
 
+math_calc
+  action: "evaluate" | "convert" (required)
+  expression: string (optional, for evaluate action)
+  value: string (optional, for convert action)
+  from: string (optional, for convert action)
+  to: string (optional, for convert action)
+
 code_helper
   action: "write" | "edit" | "run" | "explain" (required)
   description: string (required)
