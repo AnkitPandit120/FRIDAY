@@ -255,6 +255,10 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
         from actions.text_crypto import text_crypto
         return text_crypto(parameters=parameters, player=None) or "Crypto operation complete."
 
+    elif tool == "math_calc":
+        from actions.math_calc import math_calc
+        return math_calc(parameters=parameters, player=None) or "Math operation complete."
+
     else:
         print(f"[Executor] ⚠️ Unknown tool '{tool}' — falling back to generated_code")
         return _run_generated_code(f"Accomplish this task: {parameters}", speak=speak)
