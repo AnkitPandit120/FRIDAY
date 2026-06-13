@@ -34,6 +34,7 @@ from actions.game_updater      import game_updater
 from actions.spotify_control  import spotify_control
 from actions.system_status import system_status
 from actions.text_crypto import text_crypto
+from actions.math_calc import math_calc
 
 
 def get_base_dir():
@@ -579,6 +580,39 @@ TOOL_DECLARATIONS = [
             "required": ["action"]
         }
     },
+    {
+        "name": "math_calc",
+        "description": (
+            "Evaluates arithmetic math expressions securely or performs unit conversions "
+            "between temperature, length/distance, mass/weight, and volume."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": "evaluate | convert"
+                },
+                "expression": {
+                    "type": "STRING",
+                    "description": "Arithmetic expression to evaluate (e.g. '(12.5 * 3) + 7')"
+                },
+                "value": {
+                    "type": "STRING",
+                    "description": "Numeric value for unit conversion (e.g. '100')"
+                },
+                "from": {
+                    "type": "STRING",
+                    "description": "Source unit (e.g. 'celsius', 'km', 'kg', 'liters')"
+                },
+                "to": {
+                    "type": "STRING",
+                    "description": "Target unit (e.g. 'fahrenheit', 'miles', 'lbs', 'gallons')"
+                }
+            },
+            "required": ["action"]
+        }
+    },
 ]
 
 class FridayLive:
@@ -980,6 +1014,10 @@ class FridayLive:
             elif name == "text_crypto":
                 r = await loop.run_in_executor(None, lambda: text_crypto(parameters=args, player=self.ui))
                 result = r or "Crypto operation done."
+
+            elif name == "math_calc":
+                r = await loop.run_in_executor(None, lambda: math_calc(parameters=args, player=self.ui))
+                result = r or "Math calculation done."
 
             elif name == "shutdown_friday":
                 self.ui.write_log("SYS: Shutdown requested.")
