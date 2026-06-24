@@ -1075,18 +1075,39 @@ class FridayLive:
     async def _listen_audio(self):
         print("[FRIDAY] 🎤 Mic started")
         loop = asyncio.get_event_loop()
+        warmup_chunks = 15  # Discard first ~1s to filter initialization clicks/pops
 
         def callback(indata, frames, time_info, status):
+            nonlocal warmup_chunks
+            if status:
+                print(f"[FRIDAY] ⚠️ Mic status: {status}")
+            if warmup_chunks > 0:
+                warmup_chunks -= 1
+                return
+
             with self._speaking_lock:
                 friday_speaking = self._is_speaking
             if not friday_speaking and not self.ui.muted:
                 data = indata.tobytes()
-                loop.call_soon_threadsafe(
-                    self.out_queue.put_nowait,
-                    {"data": data, "mime_type": "audio/pcm"}
-                )
+                def safe_put():
+                    try:
+                        self.out_queue.put_nowait({"data": data, "mime_type": "audio/pcm"})
+                    except asyncio.QueueFull:
+                        try:
+                            # Drop the oldest chunk to keep latency low
+                            self.out_queue.get_nowait()
+                            self.out_queue.put_nowait({"data": data, "mime_type": "audio/pcm"})
+                        except Exception:
+                            pass
+                loop.call_soon_threadsafe(safe_put)
 
         try:
+            try:
+                device_info = sd.query_devices(kind='input')
+                print(f"[FRIDAY] 🎤 Default Input Device: {device_info.get('name', 'Unknown')} (Sample Rate: {device_info.get('default_samplerate', 16000)}Hz)")
+            except Exception as de:
+                print(f"[FRIDAY] ⚠️ Mic device query error: {de}")
+
             with sd.InputStream(
                 samplerate=SEND_SAMPLE_RATE,
                 channels=CHANNELS,
@@ -1245,7 +1266,7 @@ class FridayLive:
                     self.session        = session
                     self._loop          = asyncio.get_event_loop()
                     self.audio_in_queue = asyncio.Queue()
-                    self.out_queue      = asyncio.Queue(maxsize=10)
+                    self.out_queue      = asyncio.Queue(maxsize=100)
                     self._turn_done_event = asyncio.Event()
 
                     print("[FRIDAY] ✅ Connected.")
@@ -1256,6 +1277,9 @@ class FridayLive:
                     listen_task = tg.create_task(self._listen_audio())
                     recv_task = tg.create_task(self._receive_audio())
                     play_task = tg.create_task(self._play_audio())
+
+                    # Greet the user to signal we are online and ready
+                    self.speak("FRIDAY is online and ready, sir.")
 
                     # Check periodically if model switched to ollama or session changed
                     while _get_active_model() == "gemini" and not self.session_changed:
