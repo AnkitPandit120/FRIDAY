@@ -1096,6 +1096,18 @@ class FridayLive:
                 r = await loop.run_in_executor(None, lambda: math_calc(parameters=args, player=self.ui))
                 result = r or "Math calculation done."
 
+            elif name == "clipboard_control":
+                r = await loop.run_in_executor(None, lambda: clipboard_control(parameters=args, player=self.ui))
+                result = r or "Clipboard operation complete."
+
+            elif name == "currency_converter":
+                r = await loop.run_in_executor(None, lambda: currency_converter(parameters=args, player=self.ui))
+                result = r or "Currency operation complete."
+
+            elif name == "translator":
+                r = await loop.run_in_executor(None, lambda: translator(parameters=args, player=self.ui))
+                result = r or "Translation complete."
+
             elif name == "shutdown_friday":
                 self.ui.write_log("SYS: Shutdown requested.")
                 self.speak("Goodbye, sir.")
