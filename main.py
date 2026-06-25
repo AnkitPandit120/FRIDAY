@@ -35,7 +35,9 @@ from actions.spotify_control  import spotify_control
 from actions.system_status import system_status
 from actions.text_crypto import text_crypto
 from actions.math_calc import math_calc
-
+from actions.clipboard_manager import clipboard_control
+from actions.currency_converter import currency_converter
+from actions.translator import translator
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
