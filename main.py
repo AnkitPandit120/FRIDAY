@@ -616,6 +616,80 @@ TOOL_DECLARATIONS = [
             "required": ["action"]
         }
     },
+    {
+        "name": "clipboard_control",
+        "description": "Reads, writes, clears, formats, or extracts specific information (emails, urls, phones) from the system clipboard.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": "get | set | clear | extract | format"
+                },
+                "text": {
+                    "type": "STRING",
+                    "description": "Text to copy to clipboard (required for set action)"
+                },
+                "extract_type": {
+                    "type": "STRING",
+                    "description": "emails | urls | phones (required for extract action)"
+                },
+                "format_type": {
+                    "type": "STRING",
+                    "description": "trim | json | clean (required for format action)"
+                }
+            },
+            "required": ["action"]
+        }
+    },
+    {
+        "name": "currency_converter",
+        "description": "Performs real-time currency conversion or lists exchange rates relative to a base currency.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": "convert | rates (default: convert)"
+                },
+                "value": {
+                    "type": "STRING",
+                    "description": "Amount to convert (default: '1')"
+                },
+                "from": {
+                    "type": "STRING",
+                    "description": "Source currency code e.g. USD, EUR, GBP (default: USD)"
+                },
+                "to": {
+                    "type": "STRING",
+                    "description": "Target currency code for conversion e.g. EUR, INR, GBP (default: EUR)"
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "translator",
+        "description": "Translates text between languages or detects the language of a given text block.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": "translate | detect (default: translate)"
+                },
+                "text": {
+                    "type": "STRING",
+                    "description": "Text to translate or detect"
+                },
+                "to": {
+                    "type": "STRING",
+                    "description": "Target language name for translation (default: English)"
+                }
+            },
+            "required": ["text"]
+        }
+    },
 ]
 
 class FridayLive:
