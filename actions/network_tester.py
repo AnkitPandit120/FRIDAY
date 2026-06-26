@@ -100,7 +100,7 @@ def network_tester(parameters: dict, player=None) -> str:
     _log("Testing download speed (this will take about 5 seconds)...", player)
     
     download_urls = [
-        "https://speed.cloudflare.com/__down?bytes=15000000" for _ in range(4)
+        "https://speed.cloudflare.com/__down?bytes=10000000" for _ in range(4)
     ]
     
     total_downloaded_bytes = 0
