@@ -38,6 +38,7 @@ from actions.math_calc import math_calc
 from actions.clipboard_manager import clipboard_control
 from actions.currency_converter import currency_converter
 from actions.translator import translator
+from actions.network_tester import network_tester
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
@@ -690,6 +691,23 @@ TOOL_DECLARATIONS = [
             "required": ["text"]
         }
     },
+    {
+        "name": "network_tester",
+        "description": (
+            "Tests the user's internet connection speed, including download/upload rate, latency (ping), "
+            "jitter, and gathers ISP/network provider information."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": "test (default: runs download, upload, ping) | ping (only tests latency/ping)"
+                }
+            },
+            "required": []
+        }
+    },
 ]
 
 class FridayLive:
@@ -1107,6 +1125,10 @@ class FridayLive:
             elif name == "translator":
                 r = await loop.run_in_executor(None, lambda: translator(parameters=args, player=self.ui))
                 result = r or "Translation complete."
+
+            elif name == "network_tester":
+                r = await loop.run_in_executor(None, lambda: network_tester(parameters=args, player=self.ui))
+                result = r or "Network test complete."
 
             elif name == "shutdown_friday":
                 self.ui.write_log("SYS: Shutdown requested.")
